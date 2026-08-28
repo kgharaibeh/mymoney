@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@fastify/static": "^7.0.4",
     "@mymoney/domain": "workspace:*",
     "@mymoney/money-core": "workspace:*",
     "fastify": "^4.28.0"

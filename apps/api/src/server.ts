@@ -10,6 +10,7 @@
  */
 
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import fastifyStatic from "@fastify/static";
 import type { Money } from "@mymoney/money-core";
 import {
   InMemoryAccountRepository,
@@ -138,10 +139,17 @@ function requireUser(req: FastifyRequest): string {
 
 // ---- Server -----------------------------------------------------------------
 
-const PUBLIC_PATHS = new Set(["/health", "/v1/auth/signup", "/v1/auth/login"]);
+const PUBLIC_V1_PATHS = new Set(["/v1/auth/signup", "/v1/auth/login"]);
 
 export function buildServer(service: AppService, connections: ConnectionService, auth: AuthService) {
   const app = Fastify({ logger: true });
+
+  // In production the API also serves the built web app as static files, so the
+  // whole thing is one deployable service. Set WEB_DIST to the web `dist` dir.
+  const webDist = process.env.WEB_DIST;
+  if (webDist) {
+    app.register(fastifyStatic, { root: webDist, prefix: "/" });
+  }
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AuthError) return reply.status(err.status).send({ error: "auth", message: err.message });
@@ -162,11 +170,13 @@ export function buildServer(service: AppService, connections: ConnectionService,
     reply.header("Referrer-Policy", "no-referrer");
   });
 
-  // Authenticate every request except the public ones. A valid, unrevoked
-  // bearer token sets req.userId, which requireUser() reads.
+  // Authenticate every /v1 request except the public auth endpoints. Health and
+  // the static web assets (any non-/v1 path) are open. A valid, unrevoked bearer
+  // token sets req.userId, which requireUser() reads.
   app.addHook("onRequest", async (req, reply) => {
     const path = req.url.split("?")[0];
-    if (PUBLIC_PATHS.has(path)) return;
+    if (!path.startsWith("/v1")) return;
+    if (PUBLIC_V1_PATHS.has(path)) return;
     const header = req.headers["authorization"];
     const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
     if (!token) return reply.status(401).send({ error: "auth", message: "Missing bearer token." });
@@ -327,6 +337,15 @@ export function buildServer(service: AppService, connections: ConnectionService,
       budgets: data.budgets.map(serializeBudget),
       categories: data.categories,
     };
+  });
+
+  // SPA fallback: any unmatched GET that isn't an API/health route returns the
+  // web app's index.html so client-side rendering can take over.
+  app.setNotFoundHandler((req, reply) => {
+    if (webDist && req.method === "GET" && !req.url.startsWith("/v1") && !req.url.startsWith("/health")) {
+      return reply.sendFile("index.html");
+    }
+    return reply.status(404).send({ error: "not_found", message: "Route not found" });
   });
 
   return app;
