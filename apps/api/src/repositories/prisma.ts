@@ -451,7 +451,7 @@ export class PrismaUserRepository implements UserRepository {
 
   async create(user: UserAccount): Promise<UserAccount> {
     const row = await this.prisma.user.create({
-      data: { id: user.id, email: user.email, passwordHash: user.passwordHash },
+      data: { id: user.id, email: user.email, passwordHash: user.passwordHash, tokenVersion: user.tokenVersion },
     });
     return this.toUser(row);
   }
@@ -463,8 +463,27 @@ export class PrismaUserRepository implements UserRepository {
     const row = await this.prisma.user.findUnique({ where: { id } });
     return row ? this.toUser(row) : null;
   }
-  private toUser(row: { id: string; email: string; passwordHash: string; createdAt: Date }): UserAccount {
-    return { id: row.id, email: row.email, passwordHash: row.passwordHash, createdAt: row.createdAt.toISOString() };
+  async update(user: UserAccount): Promise<UserAccount> {
+    const row = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { email: user.email, passwordHash: user.passwordHash, tokenVersion: user.tokenVersion },
+    });
+    return this.toUser(row);
+  }
+  private toUser(row: {
+    id: string;
+    email: string;
+    passwordHash: string;
+    tokenVersion: number;
+    createdAt: Date;
+  }): UserAccount {
+    return {
+      id: row.id,
+      email: row.email,
+      passwordHash: row.passwordHash,
+      tokenVersion: row.tokenVersion,
+      createdAt: row.createdAt.toISOString(),
+    };
   }
 }
 

@@ -196,6 +196,11 @@ export class InMemoryUserRepository implements UserRepository {
   async findById(id: string): Promise<UserAccount | null> {
     return this.byId.get(id) ?? null;
   }
+  async update(user: UserAccount): Promise<UserAccount> {
+    this.byId.set(user.id, user);
+    this.byEmail.set(user.email, user);
+    return user;
+  }
 }
 
 export class SystemClock implements Clock {

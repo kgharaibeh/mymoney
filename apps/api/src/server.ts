@@ -155,8 +155,15 @@ export function buildServer(service: AppService, connections: ConnectionService,
     return reply.status(500).send({ error: "internal", message: "Unexpected error" });
   });
 
-  // Authenticate every request except the public ones. A valid bearer token
-  // sets req.userId, which requireUser() reads.
+  // Baseline security response headers.
+  app.addHook("onSend", async (_req, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header("Referrer-Policy", "no-referrer");
+  });
+
+  // Authenticate every request except the public ones. A valid, unrevoked
+  // bearer token sets req.userId, which requireUser() reads.
   app.addHook("onRequest", async (req, reply) => {
     const path = req.url.split("?")[0];
     if (PUBLIC_PATHS.has(path)) return;
@@ -164,8 +171,8 @@ export function buildServer(service: AppService, connections: ConnectionService,
     const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
     if (!token) return reply.status(401).send({ error: "auth", message: "Missing bearer token." });
     try {
-      const { sub } = auth.verifyToken(token);
-      (req as FastifyRequest & { userId?: string }).userId = sub;
+      const { userId } = await auth.authenticate(token);
+      (req as FastifyRequest & { userId?: string }).userId = userId;
     } catch {
       return reply.status(401).send({ error: "auth", message: "Invalid or expired token." });
     }
@@ -180,6 +187,11 @@ export function buildServer(service: AppService, connections: ConnectionService,
   });
   app.post("/v1/auth/login", async (req) => auth.login(req.body as never));
   app.get("/v1/auth/me", async (req) => auth.me(requireUser(req)));
+  app.post("/v1/auth/change-password", async (req) => {
+    const body = req.body as { currentPassword?: string; newPassword?: string };
+    return auth.changePassword(requireUser(req), body.currentPassword ?? "", body.newPassword ?? "");
+  });
+  app.post("/v1/auth/logout-all", async (req) => auth.logoutEverywhere(requireUser(req)));
 
   // Accounts
   app.post("/v1/accounts", async (req: FastifyRequest, reply: FastifyReply) => {

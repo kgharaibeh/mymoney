@@ -119,6 +119,73 @@ describe("MyMoney API", () => {
       const wrong = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { email: "login@test.com", password: "wrongpass1" } });
       expect(wrong.statusCode).toBe(401);
     });
+
+    it("changing the password revokes existing tokens and issues a fresh one", async () => {
+      const signup = await app.inject({
+        method: "POST",
+        url: "/v1/auth/signup",
+        payload: { email: "changepw@test.com", password: "password123" },
+      });
+      const oldToken = signup.json().token as string;
+
+      const changed = await app.inject({
+        method: "POST",
+        url: "/v1/auth/change-password",
+        headers: { authorization: `Bearer ${oldToken}` },
+        payload: { currentPassword: "password123", newPassword: "newpassword456" },
+      });
+      expect(changed.statusCode).toBe(200);
+      const newToken = changed.json().token as string;
+
+      // Old token is now revoked; the fresh one still works.
+      const oldUse = await app.inject({ method: "GET", url: "/v1/auth/me", headers: { authorization: `Bearer ${oldToken}` } });
+      expect(oldUse.statusCode).toBe(401);
+      const newUse = await app.inject({ method: "GET", url: "/v1/auth/me", headers: { authorization: `Bearer ${newToken}` } });
+      expect(newUse.statusCode).toBe(200);
+
+      // The new password logs in; the old one no longer does.
+      const relog = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { email: "changepw@test.com", password: "newpassword456" } });
+      expect(relog.statusCode).toBe(200);
+    });
+
+    it("rejects change-password with a wrong current password", async () => {
+      const auth = await authFor("changepw2@test.com");
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/auth/change-password",
+        headers: auth,
+        payload: { currentPassword: "not-it", newPassword: "newpassword456" },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it("log-out-everywhere revokes existing tokens", async () => {
+      const signup = await app.inject({
+        method: "POST",
+        url: "/v1/auth/signup",
+        payload: { email: "logoutall@test.com", password: "password123" },
+      });
+      const oldToken = signup.json().token as string;
+
+      const res = await app.inject({ method: "POST", url: "/v1/auth/logout-all", headers: { authorization: `Bearer ${oldToken}` } });
+      expect(res.statusCode).toBe(200);
+
+      const oldUse = await app.inject({ method: "GET", url: "/v1/auth/me", headers: { authorization: `Bearer ${oldToken}` } });
+      expect(oldUse.statusCode).toBe(401);
+    });
+
+    it("rate-limits repeated failed logins", async () => {
+      await app.inject({ method: "POST", url: "/v1/auth/signup", payload: { email: "brute@test.com", password: "password123" } });
+      let sawLimit = false;
+      for (let i = 0; i < 12; i++) {
+        const res = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { email: "brute@test.com", password: "wrongpass1" } });
+        if (res.statusCode === 429) {
+          sawLimit = true;
+          break;
+        }
+      }
+      expect(sawLimit).toBe(true);
+    });
   });
 
   it("creates an account, records a transaction, and derives the balance", async () => {

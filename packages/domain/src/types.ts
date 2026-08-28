@@ -12,6 +12,8 @@ export interface UserAccount {
   id: string;
   email: string;
   passwordHash: string;
+  /** Bumped to revoke all outstanding tokens (logout-everywhere, password change). */
+  tokenVersion: number;
   createdAt: string;
 }
 
