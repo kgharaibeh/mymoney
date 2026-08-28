@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { api } from "../api";
 import { currentPeriod } from "../format";
-import { Banner, Button, Empty, Field, MoneyText, Section, cx, useAsync } from "../ui";
+import { toast } from "../toast";
+import { Banner, Button, Empty, Field, MoneyText, Section, Spinner, cx, useAsync } from "../ui";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "AED", "SAR", "JOD"];
 
@@ -27,6 +28,7 @@ export function Budgets() {
           </label>
         }
       >
+        {budgets.loading && <Spinner />}
         {budgets.error && <Banner kind="error">{budgets.error}</Banner>}
         {budgets.data && budgets.data.length === 0 && <Empty>No budgets for {period}.</Empty>}
         {budgets.data && budgets.data.length > 0 && (
@@ -74,6 +76,7 @@ function CreateBudget({ defaultPeriod, onCreated }: { defaultPeriod: string; onC
     setBusy(true);
     try {
       await api.createBudget({ categoryId, period, limit, currency });
+      toast.success(`Budget for "${categoryId}" saved.`);
       setCategoryId("");
       onCreated();
     } catch (e) {

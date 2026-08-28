@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, type SyncResultDTO } from "../api";
-import { Banner, Button, Empty, Field, Pill, Section, useAsync } from "../ui";
+import { toast } from "../toast";
+import { Banner, Button, Empty, Field, Pill, Section, Spinner, useAsync } from "../ui";
 
 export function Banks() {
   const connections = useAsync(() => api.listConnections(), []);
@@ -32,7 +33,9 @@ export function Banks() {
     setBusy(id);
     try {
       const r: SyncResultDTO = await api.syncConnection(id);
-      setNotice(`Sync complete: linked ${r.accountsLinked} account(s), imported ${r.imported}, skipped ${r.skippedDuplicates}.`);
+      const msg = `Sync complete: linked ${r.accountsLinked} account(s), imported ${r.imported}, skipped ${r.skippedDuplicates}.`;
+      setNotice(msg);
+      toast.success(msg);
       connections.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -45,6 +48,7 @@ export function Banks() {
     setBusy(id);
     try {
       await api.revokeConnection(id);
+      toast.success("Connection revoked.");
       connections.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -70,6 +74,7 @@ export function Banks() {
       >
         {error && <Banner kind="error">{error}</Banner>}
         {notice && <Banner kind="success">{notice}</Banner>}
+        {connections.loading && <Spinner />}
         {connections.data && connections.data.length === 0 && (
           <Empty>No connections yet. The Sandbox provider links a fake bank so you can try the full flow.</Empty>
         )}
@@ -134,6 +139,7 @@ function Rules({
     setBusy(true);
     try {
       await api.addRule({ match, categoryId });
+      toast.success("Rule added.");
       setMatch("");
       setCategoryId("");
       onChanged();

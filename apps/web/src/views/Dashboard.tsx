@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { Banner, Empty, MoneyText, Section, useAsync } from "../ui";
+import { Banner, Empty, MoneyText, Section, Spinner, useAsync } from "../ui";
 
 const BASES = ["USD", "EUR", "GBP", "JPY", "AED", "SAR", "JOD"];
 
@@ -39,6 +39,7 @@ export function Dashboard() {
       </Section>
 
       <Section title="Accounts" actions={<button className="btn" onClick={() => accounts.reload()}>Refresh</button>}>
+        {accounts.loading && <Spinner />}
         {accounts.error && <Banner kind="error">{accounts.error}</Banner>}
         {accounts.data && accounts.data.length === 0 && (
           <Empty>No accounts yet — add one under Accounts, or link a bank under Banks.</Empty>

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { api, type AccountDTO, type ImportResultDTO } from "../api";
 import { today } from "../format";
-import { Banner, Button, Empty, Field, MoneyText, Section, useAsync } from "../ui";
+import { toast } from "../toast";
+import { Banner, Button, ConfirmButton, Empty, Field, MoneyText, Section, Spinner, useAsync } from "../ui";
 
 const TYPES = ["checking", "savings", "credit_card", "cash", "loan", "investment", "asset"];
 const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "AED", "SAR", "JOD", "CAD", "AUD", "INR"];
@@ -20,6 +21,7 @@ export function Accounts() {
       <CreateAccount onCreated={() => accounts.reload()} />
 
       <Section title="Your accounts" actions={<Button onClick={() => accounts.reload()}>Refresh</Button>}>
+        {accounts.loading && <Spinner />}
         {accounts.error && <Banner kind="error">{accounts.error}</Banner>}
         {accounts.data && accounts.data.length === 0 && <Empty>No accounts yet.</Empty>}
         {accounts.data && accounts.data.length > 0 && (
@@ -72,6 +74,7 @@ function CreateAccount({ onCreated }: { onCreated: () => void }) {
     setBusy(true);
     try {
       await api.createAccount({ name, type, currency, openingBalance: opening });
+      toast.success(`Added account "${name.trim()}".`);
       setName("");
       setOpening("0.00");
       onCreated();
@@ -131,13 +134,44 @@ function AccountPanel({
     onChanged();
   };
 
+  const archive = async () => {
+    try {
+      await api.archiveAccount(account.id);
+      toast.success(`Archived "${account.name}".`);
+      onChanged();
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await api.deleteTransaction(id);
+      toast.success("Transaction deleted.");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
     <Section
       title={`Register — ${account.name} (${account.currency})`}
-      actions={<Button variant="ghost" onClick={onClose}>Close</Button>}
+      actions={
+        <>
+          <ConfirmButton onConfirm={archive} confirmLabel="Archive">
+            Archive account
+          </ConfirmButton>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </>
+      }
     >
       <AddTransaction account={account} onAdded={refresh} />
 
+      {txns.loading && <Spinner />}
       {txns.error && <Banner kind="error">{txns.error}</Banner>}
       {txns.data && txns.data.length === 0 && <Empty>No transactions yet.</Empty>}
       {txns.data && txns.data.length > 0 && (
@@ -150,6 +184,7 @@ function AccountPanel({
                 <th>Category</th>
                 <th>Status</th>
                 <th className="num">Amount</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -161,6 +196,11 @@ function AccountPanel({
                   <td>{t.status}</td>
                   <td className="num">
                     <MoneyText value={t.amount} />
+                  </td>
+                  <td className="num">
+                    <ConfirmButton onConfirm={() => remove(t.id)} confirmLabel="Delete">
+                      Delete
+                    </ConfirmButton>
                   </td>
                 </tr>
               ))}
@@ -193,6 +233,7 @@ function AddTransaction({ account, onAdded }: { account: AccountDTO; onAdded: ()
         payee,
         categoryId: category.trim() || null,
       });
+      toast.success("Transaction added.");
       setPayee("");
       setAmount("-0.00");
       setCategory("");
@@ -250,6 +291,7 @@ function ImportCsv({ account, onImported }: { account: AccountDTO; onImported: (
         mapping: { date: dateCol, payee: payeeCol, amount: amountCol },
       });
       setResult(r);
+      toast.success(`Imported ${r.imported} transaction(s).`);
       onImported();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

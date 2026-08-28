@@ -32,6 +32,8 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 - [x] **Phase 1:** aggregation layer — `AggregationProvider` port with a **Sandbox provider** (runs offline) and a real **Salt Edge** adapter, an `AggregationRouter` that picks a provider per country, a **sync engine** (account linking, incremental pull, fingerprint dedupe, consistent opening balances), and **auto-categorization rules**.
 - [x] **Web client:** React + Vite SPA over the whole API — Dashboard (net worth), Accounts (register, add, CSV import), Budgets, and Banks (link/sync/rules).
 - [x] **Auth:** email/password signup + login, scrypt-hashed passwords, HS256 bearer tokens (zero external deps); every `/v1` route requires a token; the web client has a login/signup gate.
+- [x] **Auth hardening:** token revocation via a per-user version (change-password and log-out-everywhere invalidate all outstanding tokens), per-request user-existence checks, login rate limiting, and baseline security headers.
+- [x] **Web polish:** toasts, loading spinners, inline confirm for destructive actions, delete-transaction, archive-account, a Settings view (change password, sign out everywhere), and session validation on load.
 - [ ] OFX/QFX import, Phase 2 intelligence. (Next.)
 
 ### API endpoints
@@ -39,6 +41,7 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 ```
 POST   /v1/auth/signup                     # { email, password } -> { token, user }
 POST   /v1/auth/login                      GET  /v1/auth/me
+POST   /v1/auth/change-password            POST /v1/auth/logout-all
 
 POST   /v1/accounts                        GET  /v1/accounts
 POST   /v1/accounts/:id/archive

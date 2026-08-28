@@ -1,26 +1,57 @@
-import { useState } from "react";
-import { clearSession, getEmail, getToken } from "./api";
-import { cx } from "./ui";
+import { useEffect, useState } from "react";
+import { api, clearSession, getToken } from "./api";
+import { cx, Spinner, Toaster } from "./ui";
 import { Auth } from "./views/Auth";
 import { Dashboard } from "./views/Dashboard";
 import { Accounts } from "./views/Accounts";
 import { Budgets } from "./views/Budgets";
 import { Banks } from "./views/Banks";
+import { Settings } from "./views/Settings";
 
-type View = "dashboard" | "accounts" | "budgets" | "banks";
+type View = "dashboard" | "accounts" | "budgets" | "banks" | "settings";
 
 const NAV: Array<{ id: View; label: string; icon: string }> = [
   { id: "dashboard", label: "Dashboard", icon: "◧" },
   { id: "accounts", label: "Accounts", icon: "▤" },
   { id: "budgets", label: "Budgets", icon: "◑" },
   { id: "banks", label: "Banks", icon: "⇄" },
+  { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
 export function App() {
-  const [email, setEmail] = useState<string | null>(getToken() ? getEmail() : null);
+  const [email, setEmail] = useState<string | null>(null);
+  const [checking, setChecking] = useState<boolean>(!!getToken());
   const [view, setView] = useState<View>("dashboard");
 
-  if (!email) return <Auth onAuthed={(e) => setEmail(e)} />;
+  // Validate any stored token on load — a stale/revoked one drops us to login.
+  useEffect(() => {
+    if (!getToken()) return;
+    api
+      .me()
+      .then((u) => setEmail(u.email))
+      .catch(() => clearSession())
+      .finally(() => setChecking(false));
+  }, []);
+
+  if (checking) {
+    return (
+      <>
+        <div className="auth-shell">
+          <Spinner label="Loading MyMoney…" />
+        </div>
+        <Toaster />
+      </>
+    );
+  }
+
+  if (!email) {
+    return (
+      <>
+        <Auth onAuthed={(e) => setEmail(e)} />
+        <Toaster />
+      </>
+    );
+  }
 
   const logout = () => {
     clearSession();
@@ -56,7 +87,9 @@ export function App() {
         {view === "accounts" && <Accounts />}
         {view === "budgets" && <Budgets />}
         {view === "banks" && <Banks />}
+        {view === "settings" && <Settings />}
       </main>
+      <Toaster />
     </div>
   );
 }

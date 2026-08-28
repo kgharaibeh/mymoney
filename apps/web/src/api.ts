@@ -130,6 +130,9 @@ export const api = {
   login: (email: string, password: string) =>
     request<AuthResultDTO>("POST", "/v1/auth/login", { email, password }),
   me: () => request<{ id: string; email: string }>("GET", "/v1/auth/me"),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<AuthResultDTO>("POST", "/v1/auth/change-password", { currentPassword, newPassword }),
+  logoutEverywhere: () => request<AuthResultDTO>("POST", "/v1/auth/logout-all"),
 
   // Accounts
   listAccounts: () => request<AccountDTO[]>("GET", "/v1/accounts"),
@@ -151,6 +154,7 @@ export const api = {
     payee: string;
     categoryId?: string | null;
   }) => request<TransactionDTO>("POST", "/v1/transactions", input),
+  deleteTransaction: (id: string) => request<void>("DELETE", `/v1/transactions/${id}`),
   importCsv: (input: {
     accountId: string;
     csv: string;

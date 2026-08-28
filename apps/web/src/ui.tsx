@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { MoneyDTO } from "./api";
 import { money, signClass } from "./format";
+import { subscribeToasts, dismissToast, type Toast } from "./toast";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
@@ -82,4 +83,64 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export function Pill({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "good" | "warn" | "bad" }) {
   return <span className={cx("pill", `pill-${tone}`)}>{children}</span>;
+}
+
+export function Spinner({ label }: { label?: string }) {
+  return (
+    <div className="loading" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden />
+      {label ?? "Loading…"}
+    </div>
+  );
+}
+
+/** A destructive button that asks for inline confirmation before firing. */
+export function ConfirmButton({
+  children,
+  onConfirm,
+  confirmLabel = "Confirm",
+}: {
+  children: ReactNode;
+  onConfirm: () => void;
+  confirmLabel?: string;
+}) {
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <Button variant="danger" onClick={() => setArmed(true)}>
+        {children}
+      </Button>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      <Button
+        variant="danger"
+        onClick={() => {
+          setArmed(false);
+          onConfirm();
+        }}
+      >
+        {confirmLabel}
+      </Button>
+      <Button variant="ghost" onClick={() => setArmed(false)}>
+        Cancel
+      </Button>
+    </span>
+  );
+}
+
+/** Renders the global toast stack; mount once near the app root. */
+export function Toaster() {
+  const [items, setItems] = useState<Toast[]>([]);
+  useEffect(() => subscribeToasts(setItems), []);
+  return (
+    <div className="toaster" aria-live="polite">
+      {items.map((t) => (
+        <div key={t.id} className={cx("toast", `toast-${t.kind}`)} onClick={() => dismissToast(t.id)}>
+          {t.message}
+        </div>
+      ))}
+    </div>
+  );
 }
