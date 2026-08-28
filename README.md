@@ -1,5 +1,7 @@
 # MyMoney
 
+[![CI](https://github.com/kgharaibeh/mymoney/actions/workflows/ci.yml/badge.svg)](https://github.com/kgharaibeh/mymoney/actions/workflows/ci.yml)
+
 A global, cloud personal-finance app in the spirit of **Microsoft Money** — recovering its planning depth, connecting to bank accounts in 50+ countries (not just North America), and adding multi-currency and intelligence the desktop era never had.
 
 - **Product spec:** [docs/PRD.md](docs/PRD.md)
