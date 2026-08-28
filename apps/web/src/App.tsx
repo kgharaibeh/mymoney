@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { getUserId, setUserId } from "./api";
+import { clearSession, getEmail, getToken } from "./api";
 import { cx } from "./ui";
+import { Auth } from "./views/Auth";
 import { Dashboard } from "./views/Dashboard";
 import { Accounts } from "./views/Accounts";
 import { Budgets } from "./views/Budgets";
@@ -16,14 +17,14 @@ const NAV: Array<{ id: View; label: string; icon: string }> = [
 ];
 
 export function App() {
+  const [email, setEmail] = useState<string | null>(getToken() ? getEmail() : null);
   const [view, setView] = useState<View>("dashboard");
-  const [user, setUser] = useState(getUserId());
 
-  const changeUser = (id: string) => {
-    setUser(id);
-    setUserId(id);
-    // Reload so every view refetches for the new user.
-    window.location.reload();
+  if (!email) return <Auth onAuthed={(e) => setEmail(e)} />;
+
+  const logout = () => {
+    clearSession();
+    setEmail(null);
   };
 
   return (
@@ -42,14 +43,11 @@ export function App() {
           </button>
         ))}
         <div className="sidebar-foot">
-          <label className="field">
-            <span className="field-label">Demo user (placeholder auth)</span>
-            <input
-              value={user}
-              onChange={(e) => setUser(e.target.value)}
-              onBlur={(e) => changeUser(e.target.value || "demo-user")}
-            />
-          </label>
+          <div className="field-label">Signed in as</div>
+          <div style={{ fontSize: "0.9rem", margin: "2px 0 10px", wordBreak: "break-all" }}>{email}</div>
+          <button className="btn btn-ghost" style={{ padding: "6px 10px" }} onClick={logout}>
+            Log out
+          </button>
         </div>
       </aside>
 

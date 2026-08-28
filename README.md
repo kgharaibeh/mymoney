@@ -31,11 +31,15 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 - [x] **Phase 0:** CSV import (mappable columns, inflow/outflow, dedupe), budgets (create + budget-vs-actual), and data export (full JSON + transactions CSV).
 - [x] **Phase 1:** aggregation layer — `AggregationProvider` port with a **Sandbox provider** (runs offline) and a real **Salt Edge** adapter, an `AggregationRouter` that picks a provider per country, a **sync engine** (account linking, incremental pull, fingerprint dedupe, consistent opening balances), and **auto-categorization rules**.
 - [x] **Web client:** React + Vite SPA over the whole API — Dashboard (net worth), Accounts (register, add, CSV import), Budgets, and Banks (link/sync/rules).
-- [ ] OFX/QFX import, real auth, Phase 2 intelligence. (Next.)
+- [x] **Auth:** email/password signup + login, scrypt-hashed passwords, HS256 bearer tokens (zero external deps); every `/v1` route requires a token; the web client has a login/signup gate.
+- [ ] OFX/QFX import, Phase 2 intelligence. (Next.)
 
 ### API endpoints
 
 ```
+POST   /v1/auth/signup                     # { email, password } -> { token, user }
+POST   /v1/auth/login                      GET  /v1/auth/me
+
 POST   /v1/accounts                        GET  /v1/accounts
 POST   /v1/accounts/:id/archive
 POST   /v1/transactions                    GET  /v1/accounts/:id/transactions
@@ -89,15 +93,19 @@ pnpm --filter @mymoney/web dev   # terminal 2 — web on http://localhost:5173
 Then open http://localhost:5173. The Dashboard shows net worth and accounts;
 **Banks** links a Sandbox bank and syncs it (with auto-categorization rules);
 **Accounts** has the register, add-transaction, and CSV import; **Budgets**
-tracks budget-vs-actual. Auth is the placeholder demo user in the sidebar.
+tracks budget-vs-actual. You sign up / log in first; the session is a bearer
+token kept in the browser.
 
-Try the API (placeholder auth via `x-user-id`):
+Try the API (real auth — sign up, then use the returned bearer token):
 
 ```bash
-curl -s -XPOST localhost:3000/v1/accounts -H "x-user-id: u1" -H "content-type: application/json" \
+TOKEN=$(curl -s -XPOST localhost:3000/v1/auth/signup -H "content-type: application/json" \
+  -d '{"email":"you@example.com","password":"password123"}' | jq -r .token)
+
+curl -s -XPOST localhost:3000/v1/accounts -H "authorization: Bearer $TOKEN" -H "content-type: application/json" \
   -d '{"name":"Everyday","type":"checking","currency":"EUR","openingBalance":"1000.00"}'
 
-curl -s localhost:3000/v1/reports/net-worth?base=USD -H "x-user-id: u1"
+curl -s localhost:3000/v1/reports/net-worth?base=USD -H "authorization: Bearer $TOKEN"
 ```
 
 ### Persistence: in-memory vs. Postgres

@@ -7,6 +7,14 @@
 
 import type { Money } from "@mymoney/money-core";
 
+/** An authenticated user. `passwordHash` is an opaque KDF string, never plaintext. */
+export interface UserAccount {
+  id: string;
+  email: string;
+  passwordHash: string;
+  createdAt: string;
+}
+
 export type AccountType =
   | "checking"
   | "savings"

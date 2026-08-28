@@ -14,7 +14,14 @@ import type {
   CategorizationRule,
   Category,
   Transaction,
+  UserAccount,
 } from "./types.js";
+
+export interface UserRepository {
+  create(user: UserAccount): Promise<UserAccount>;
+  findByEmail(email: string): Promise<UserAccount | null>;
+  findById(id: string): Promise<UserAccount | null>;
+}
 
 export interface AccountRepository {
   create(account: Account): Promise<Account>;

@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { buildServer } from "./server.js";
 import { AppService } from "./service.js";
 import { ConnectionService } from "./connections.js";
+import { AuthService } from "./auth.js";
 import { AggregationRouter } from "./aggregation/router.js";
 import { SandboxAggregationProvider } from "./aggregation/sandbox.js";
 import {
@@ -12,16 +13,27 @@ import {
   InMemoryCategorizationRuleRepository,
   InMemoryCategoryRepository,
   InMemoryTransactionRepository,
+  InMemoryUserRepository,
   StaticFxRateProvider,
   SystemClock,
 } from "./repositories/in-memory.js";
 
 /**
- * End-to-end API tests using Fastify's `inject` (no real socket). Each test uses
- * a distinct x-user-id so the in-memory store stays isolated per case.
+ * End-to-end API tests using Fastify's `inject` (no real socket). Each test
+ * signs up a distinct user (via authFor) so the store stays isolated per case.
  */
 describe("MyMoney API", () => {
   let app: FastifyInstance;
+
+  /** Sign up (or log in) a user and return an Authorization header. */
+  async function authFor(email: string): Promise<{ authorization: string }> {
+    let res = await app.inject({ method: "POST", url: "/v1/auth/signup", payload: { email, password: "password123" } });
+    if (res.statusCode === 409) {
+      res = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { email, password: "password123" } });
+    }
+    return { authorization: `Bearer ${res.json().token}` };
+  }
+
   beforeAll(async () => {
     const clock = new SystemClock();
     // Shared repos so bank-synced accounts are visible to the rest of the API.
@@ -43,24 +55,74 @@ describe("MyMoney API", () => {
       new AggregationRouter([new SandboxAggregationProvider()]),
       clock,
     );
-    app = buildServer(service, connections);
+    const auth = new AuthService(new InMemoryUserRepository(), "test-secret");
+    app = buildServer(service, connections, auth);
     await app.ready();
   });
 
   it("reports health", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: "ok", phase: 0 });
+    expect(res.json()).toMatchObject({ status: "ok", phase: 1 });
   });
 
-  it("rejects requests without placeholder auth", async () => {
+  it("rejects requests without a bearer token", async () => {
     const res = await app.inject({ method: "GET", url: "/v1/accounts" });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toBe("validation");
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error).toBe("auth");
+  });
+
+  it("rejects an invalid or tampered token", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/accounts",
+      headers: { authorization: "Bearer not.a.jwt" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  describe("auth", () => {
+    it("signs up, returns a token, and can fetch the current user", async () => {
+      const signup = await app.inject({
+        method: "POST",
+        url: "/v1/auth/signup",
+        payload: { email: "signup@test.com", password: "password123" },
+      });
+      expect(signup.statusCode).toBe(201);
+      const token = signup.json().token as string;
+      expect(signup.json().user.email).toBe("signup@test.com");
+
+      const me = await app.inject({ method: "GET", url: "/v1/auth/me", headers: { authorization: `Bearer ${token}` } });
+      expect(me.statusCode).toBe(200);
+      expect(me.json().email).toBe("signup@test.com");
+    });
+    it("rejects a short password and a duplicate email", async () => {
+      const short = await app.inject({
+        method: "POST",
+        url: "/v1/auth/signup",
+        payload: { email: "x@test.com", password: "short" },
+      });
+      expect(short.statusCode).toBe(400);
+
+      await app.inject({ method: "POST", url: "/v1/auth/signup", payload: { email: "dup@test.com", password: "password123" } });
+      const dup = await app.inject({
+        method: "POST",
+        url: "/v1/auth/signup",
+        payload: { email: "dup@test.com", password: "password123" },
+      });
+      expect(dup.statusCode).toBe(409);
+    });
+    it("logs in with correct credentials and rejects a wrong password", async () => {
+      await app.inject({ method: "POST", url: "/v1/auth/signup", payload: { email: "login@test.com", password: "password123" } });
+      const ok = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { email: "login@test.com", password: "password123" } });
+      expect(ok.statusCode).toBe(200);
+      const wrong = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { email: "login@test.com", password: "wrongpass1" } });
+      expect(wrong.statusCode).toBe(401);
+    });
   });
 
   it("creates an account, records a transaction, and derives the balance", async () => {
-    const user = { "x-user-id": "user-a" };
+    const user = await authFor("a@test.com");
 
     const created = await app.inject({
       method: "POST",
@@ -88,7 +150,7 @@ describe("MyMoney API", () => {
   });
 
   it("rejects a split that does not sum to the total", async () => {
-    const user = { "x-user-id": "user-b" };
+    const user = await authFor("b@test.com");
     const account = await app.inject({
       method: "POST",
       url: "/v1/accounts",
@@ -117,7 +179,7 @@ describe("MyMoney API", () => {
   });
 
   it("computes multi-currency net worth in a base currency", async () => {
-    const user = { "x-user-id": "user-c" };
+    const user = await authFor("c@test.com");
     // 990.00 EUR at EUR->USD 1.08 = 1069.20 USD
     const acct = await app.inject({
       method: "POST",
@@ -133,7 +195,7 @@ describe("MyMoney API", () => {
   });
 
   it("imports a CSV, derives the balance, and dedupes on re-import", async () => {
-    const user = { "x-user-id": "user-d" };
+    const user = await authFor("d@test.com");
     const account = await app.inject({
       method: "POST",
       url: "/v1/accounts",
@@ -168,7 +230,7 @@ describe("MyMoney API", () => {
   });
 
   it("reports budget vs. actual for a period", async () => {
-    const user = { "x-user-id": "user-e" };
+    const user = await authFor("e@test.com");
     const account = await app.inject({
       method: "POST",
       url: "/v1/accounts",
@@ -206,7 +268,7 @@ describe("MyMoney API", () => {
   });
 
   it("exports all data as JSON and transactions as CSV", async () => {
-    const user = { "x-user-id": "user-d" }; // reuse the CSV-import user
+    const user = await authFor("d@test.com"); // reuse the CSV-import user
 
     const json = await app.inject({ method: "GET", url: "/v1/export", headers: user });
     expect(json.statusCode).toBe(200);
@@ -221,7 +283,7 @@ describe("MyMoney API", () => {
   });
 
   it("links a bank via the sandbox provider, syncs, auto-categorizes, and dedupes", async () => {
-    const user = { "x-user-id": "user-bank" };
+    const user = await authFor("bank@test.com");
 
     // A categorization rule that should tag the imported Starbucks transaction.
     const rule = await app.inject({

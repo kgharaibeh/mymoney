@@ -398,6 +398,19 @@ th.num {
   background: var(--neg);
 }
 
+/* Auth screen */
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  margin: 0;
+}
+
 @media (max-width: 720px) {
   .app {
     grid-template-columns: 1fr;

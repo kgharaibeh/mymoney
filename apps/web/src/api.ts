@@ -1,13 +1,27 @@
 // Typed client for the MyMoney API. Auth is the placeholder x-user-id header;
 // the user id is stored in localStorage so you can simulate different users.
 
-const USER_KEY = "mymoney.userId";
+const TOKEN_KEY = "mymoney.token";
+const EMAIL_KEY = "mymoney.email";
 
-export function getUserId(): string {
-  return localStorage.getItem(USER_KEY) || "demo-user";
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
 }
-export function setUserId(id: string): void {
-  localStorage.setItem(USER_KEY, id || "demo-user");
+export function getEmail(): string | null {
+  return localStorage.getItem(EMAIL_KEY);
+}
+export function setSession(token: string, email: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(EMAIL_KEY, email);
+}
+export function clearSession(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(EMAIL_KEY);
+}
+
+export interface AuthResultDTO {
+  token: string;
+  user: { id: string; email: string };
 }
 
 export interface MoneyDTO {
@@ -85,7 +99,9 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { "x-user-id": getUserId() };
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["authorization"] = `Bearer ${token}`;
   // Only advertise a JSON body when there actually is one — otherwise Fastify's
   // JSON parser rejects the empty body on bodyless POSTs (sync, revoke, archive).
   if (body !== undefined) headers["content-type"] = "application/json";
@@ -97,6 +113,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const text = await res.text();
   const data = text ? JSON.parse(text) : undefined;
   if (!res.ok) {
+    // A 401 on an authenticated call means the session is gone — clear it so the
+    // app falls back to the login screen.
+    if (res.status === 401 && token) clearSession();
     const message =
       (data && (data.problems?.join(" ") || data.message)) || `Request failed (${res.status})`;
     throw new ApiError(res.status, message);
@@ -105,6 +124,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
+  // Auth
+  signup: (email: string, password: string) =>
+    request<AuthResultDTO>("POST", "/v1/auth/signup", { email, password }),
+  login: (email: string, password: string) =>
+    request<AuthResultDTO>("POST", "/v1/auth/login", { email, password }),
+  me: () => request<{ id: string; email: string }>("GET", "/v1/auth/me"),
+
   // Accounts
   listAccounts: () => request<AccountDTO[]>("GET", "/v1/accounts"),
   createAccount: (input: {

@@ -18,11 +18,13 @@ import {
   InMemoryCategorizationRuleRepository,
   InMemoryCategoryRepository,
   InMemoryTransactionRepository,
+  InMemoryUserRepository,
   StaticFxRateProvider,
   SystemClock,
 } from "./repositories/in-memory.js";
 import { AppService, NotFoundError, ValidationError } from "./service.js";
 import { ConnectionService } from "./connections.js";
+import { AuthError, AuthService } from "./auth.js";
 import { AggregationRouter } from "./aggregation/router.js";
 import { SandboxAggregationProvider } from "./aggregation/sandbox.js";
 import { SaltEdgeAggregationProvider } from "./aggregation/saltedge.js";
@@ -31,6 +33,7 @@ import type { AggregationProvider, Clock } from "@mymoney/domain";
 export interface AppDeps {
   service: AppService;
   connections: ConnectionService;
+  auth: AuthService;
 }
 
 // ---- Dependency wiring ------------------------------------------------------
@@ -48,6 +51,15 @@ function buildRouter(): AggregationRouter {
   return new AggregationRouter(providers);
 }
 
+function authSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    console.warn("[auth] AUTH_SECRET is not set — using an insecure dev default. Set it in production.");
+    return "dev-insecure-secret-change-me";
+  }
+  return secret;
+}
+
 export async function createDepsFromEnv(): Promise<AppDeps> {
   const clock: Clock = new SystemClock();
   const router = buildRouter();
@@ -60,6 +72,7 @@ export async function createDepsFromEnv(): Promise<AppDeps> {
       PrismaCategoryRepository,
       PrismaAggregatorConnectionRepository,
       PrismaCategorizationRuleRepository,
+      PrismaUserRepository,
       PrismaFxRateProvider,
     } = await import("./repositories/prisma.js");
     const accounts = new PrismaAccountRepository();
@@ -80,7 +93,8 @@ export async function createDepsFromEnv(): Promise<AppDeps> {
       router,
       clock,
     );
-    return { service, connections };
+    const auth = new AuthService(new PrismaUserRepository(), authSecret());
+    return { service, connections, auth };
   }
 
   // In-memory: account & transaction repos are SHARED by both services so that
@@ -103,7 +117,8 @@ export async function createDepsFromEnv(): Promise<AppDeps> {
     router,
     clock,
   );
-  return { service, connections };
+  const auth = new AuthService(new InMemoryUserRepository(), authSecret());
+  return { service, connections, auth };
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -114,20 +129,22 @@ const serializeMoney = (m: Money) => ({
   decimal: m.toDecimalString(),
 });
 
+/** The authenticated user id, set on the request by the auth hook. */
 function requireUser(req: FastifyRequest): string {
-  const userId = req.headers["x-user-id"];
-  if (typeof userId !== "string" || !userId) {
-    throw new ValidationError(["Missing x-user-id header (placeholder auth)."]);
-  }
+  const userId = (req as FastifyRequest & { userId?: string }).userId;
+  if (!userId) throw new AuthError(401, "Not authenticated.");
   return userId;
 }
 
 // ---- Server -----------------------------------------------------------------
 
-export function buildServer(service: AppService, connections: ConnectionService) {
+const PUBLIC_PATHS = new Set(["/health", "/v1/auth/signup", "/v1/auth/login"]);
+
+export function buildServer(service: AppService, connections: ConnectionService, auth: AuthService) {
   const app = Fastify({ logger: true });
 
   app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof AuthError) return reply.status(err.status).send({ error: "auth", message: err.message });
     if (err instanceof ValidationError) return reply.status(400).send({ error: "validation", problems: err.problems });
     if (err instanceof NotFoundError) return reply.status(404).send({ error: "not_found", message: err.message });
     // Respect Fastify's own client-error status codes (e.g. malformed body).
@@ -138,7 +155,31 @@ export function buildServer(service: AppService, connections: ConnectionService)
     return reply.status(500).send({ error: "internal", message: "Unexpected error" });
   });
 
-  app.get("/health", async () => ({ status: "ok", service: "mymoney-api", phase: 0 }));
+  // Authenticate every request except the public ones. A valid bearer token
+  // sets req.userId, which requireUser() reads.
+  app.addHook("onRequest", async (req, reply) => {
+    const path = req.url.split("?")[0];
+    if (PUBLIC_PATHS.has(path)) return;
+    const header = req.headers["authorization"];
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+    if (!token) return reply.status(401).send({ error: "auth", message: "Missing bearer token." });
+    try {
+      const { sub } = auth.verifyToken(token);
+      (req as FastifyRequest & { userId?: string }).userId = sub;
+    } catch {
+      return reply.status(401).send({ error: "auth", message: "Invalid or expired token." });
+    }
+  });
+
+  app.get("/health", async () => ({ status: "ok", service: "mymoney-api", phase: 1 }));
+
+  // Auth
+  app.post("/v1/auth/signup", async (req, reply) => {
+    const result = await auth.signup(req.body as never);
+    return reply.status(201).send(result);
+  });
+  app.post("/v1/auth/login", async (req) => auth.login(req.body as never));
+  app.get("/v1/auth/me", async (req) => auth.me(requireUser(req)));
 
   // Accounts
   app.post("/v1/accounts", async (req: FastifyRequest, reply: FastifyReply) => {
@@ -334,7 +375,7 @@ const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const port = Number(process.env.PORT ?? 3000);
   createDepsFromEnv()
-    .then((deps) => buildServer(deps.service, deps.connections).listen({ port, host: "0.0.0.0" }))
+    .then((deps) => buildServer(deps.service, deps.connections, deps.auth).listen({ port, host: "0.0.0.0" }))
     .then(() => console.log(`MyMoney API listening on :${port} (store: ${process.env.STORE ?? "memory"})`))
     .catch((err) => {
       console.error(err);

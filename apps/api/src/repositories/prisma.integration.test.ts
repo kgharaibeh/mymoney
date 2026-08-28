@@ -42,7 +42,7 @@ describe.skipIf(!run)("Prisma adapters (Postgres)", () => {
     await prisma.user.deleteMany({ where: { id: userId } });
 
     // Seed the FK dependencies the relational store requires.
-    await prisma.user.create({ data: { id: userId, email: "itest@example.com" } });
+    await prisma.user.create({ data: { id: userId, email: "itest@example.com", passwordHash: "x" } });
     await prisma.category.createMany({
       data: [
         { id: "food", userId, name: "Food", kind: "expense" },

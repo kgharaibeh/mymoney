@@ -22,6 +22,8 @@ import type {
   FxRateProvider,
   Transaction,
   TransactionRepository,
+  UserAccount,
+  UserRepository,
 } from "@mymoney/domain";
 
 export class InMemoryAccountRepository implements AccountRepository {
@@ -177,6 +179,22 @@ export class InMemoryCategorizationRuleRepository implements CategorizationRuleR
   }
   async listByUser(userId: string): Promise<CategorizationRule[]> {
     return this.rules.filter((r) => r.userId === userId);
+  }
+}
+
+export class InMemoryUserRepository implements UserRepository {
+  private byId = new Map<string, UserAccount>();
+  private byEmail = new Map<string, UserAccount>();
+  async create(user: UserAccount): Promise<UserAccount> {
+    this.byId.set(user.id, user);
+    this.byEmail.set(user.email, user);
+    return user;
+  }
+  async findByEmail(email: string): Promise<UserAccount | null> {
+    return this.byEmail.get(email) ?? null;
+  }
+  async findById(id: string): Promise<UserAccount | null> {
+    return this.byId.get(id) ?? null;
   }
 }
 

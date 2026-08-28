@@ -31,6 +31,8 @@ import type {
   Transaction,
   TransactionRepository,
   TransactionStatus,
+  UserAccount,
+  UserRepository,
 } from "@mymoney/domain";
 
 // ---- Shared client ----------------------------------------------------------
@@ -441,6 +443,28 @@ export class PrismaCategorizationRuleRepository implements CategorizationRuleRep
       orderBy: { createdAt: "asc" },
     });
     return rows.map((r) => ({ id: r.id, userId: r.userId, match: r.match, categoryId: r.categoryId }));
+  }
+}
+
+export class PrismaUserRepository implements UserRepository {
+  constructor(private readonly prisma: PrismaClient = getPrisma()) {}
+
+  async create(user: UserAccount): Promise<UserAccount> {
+    const row = await this.prisma.user.create({
+      data: { id: user.id, email: user.email, passwordHash: user.passwordHash },
+    });
+    return this.toUser(row);
+  }
+  async findByEmail(email: string): Promise<UserAccount | null> {
+    const row = await this.prisma.user.findUnique({ where: { email } });
+    return row ? this.toUser(row) : null;
+  }
+  async findById(id: string): Promise<UserAccount | null> {
+    const row = await this.prisma.user.findUnique({ where: { id } });
+    return row ? this.toUser(row) : null;
+  }
+  private toUser(row: { id: string; email: string; passwordHash: string; createdAt: Date }): UserAccount {
+    return { id: row.id, email: row.email, passwordHash: row.passwordHash, createdAt: row.createdAt.toISOString() };
   }
 }
 
