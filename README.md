@@ -13,9 +13,8 @@ packages/
                 penny-safe allocation. The correctness-critical core. Fully tested.
   domain/       Entities, ledger rules, and ports (interfaces). Depends only on money-core.
 apps/
-  api/          Fastify HTTP API. Phase 0 runs on in-memory adapters (no DB needed);
-                Prisma schema included for production persistence.
-  web/          React client (not yet scaffolded — Phase 0.5).
+  api/          Fastify HTTP API. Runs on in-memory adapters (no DB needed) or Prisma/Postgres.
+  web/          React + Vite client. Reuses @mymoney/money-core for money formatting.
 docs/           PRD + architecture.
 ```
 
@@ -31,7 +30,8 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 - [x] Prisma adapters + `docker-compose` Postgres, verified by integration tests against a live database.
 - [x] **Phase 0:** CSV import (mappable columns, inflow/outflow, dedupe), budgets (create + budget-vs-actual), and data export (full JSON + transactions CSV).
 - [x] **Phase 1:** aggregation layer — `AggregationProvider` port with a **Sandbox provider** (runs offline) and a real **Salt Edge** adapter, an `AggregationRouter` that picks a provider per country, a **sync engine** (account linking, incremental pull, fingerprint dedupe, consistent opening balances), and **auto-categorization rules**.
-- [ ] OFX/QFX import, web client, Phase 2 intelligence. (Next.)
+- [x] **Web client:** React + Vite SPA over the whole API — Dashboard (net worth), Accounts (register, add, CSV import), Budgets, and Banks (link/sync/rules).
+- [ ] OFX/QFX import, real auth, Phase 2 intelligence. (Next.)
 
 ### API endpoints
 
@@ -74,6 +74,22 @@ pnpm test          # run every package's tests
 pnpm build         # type-check + build all packages
 pnpm dev:api       # start the API on http://localhost:3000 (in-memory, no DB)
 ```
+
+### The web client
+
+The React client (in `apps/web`) talks to the API and reuses `@mymoney/money-core`
+for formatting. In dev it proxies `/v1` to the API, so run both:
+
+```bash
+pnpm -r build              # build money-core first (the web app imports it)
+pnpm dev:api               # terminal 1 — API on :3000 (in-memory)
+pnpm --filter @mymoney/web dev   # terminal 2 — web on http://localhost:5173
+```
+
+Then open http://localhost:5173. The Dashboard shows net worth and accounts;
+**Banks** links a Sandbox bank and syncs it (with auto-categorization rules);
+**Accounts** has the register, add-transaction, and CSV import; **Budgets**
+tracks budget-vs-actual. Auth is the placeholder demo user in the sidebar.
 
 Try the API (placeholder auth via `x-user-id`):
 

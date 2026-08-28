@@ -130,6 +130,10 @@ export function buildServer(service: AppService, connections: ConnectionService)
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ValidationError) return reply.status(400).send({ error: "validation", problems: err.problems });
     if (err instanceof NotFoundError) return reply.status(404).send({ error: "not_found", message: err.message });
+    // Respect Fastify's own client-error status codes (e.g. malformed body).
+    if (typeof err.statusCode === "number" && err.statusCode >= 400 && err.statusCode < 500) {
+      return reply.status(err.statusCode).send({ error: "bad_request", message: err.message });
+    }
     app.log.error(err);
     return reply.status(500).send({ error: "internal", message: "Unexpected error" });
   });
