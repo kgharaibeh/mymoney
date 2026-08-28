@@ -23,16 +23,17 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 
 ## Status
 
-**Phase 0 — Foundation ledger: complete.** (50 tests passing, verified in Docker incl. a live Postgres integration run.)
+**Phase 0 complete; Phase 1 (bank connectivity) landed.** (56 tests passing, verified in Docker incl. a live Postgres integration run.)
 
 - [x] `money-core`: Money type, currency registry, rounding modes, FX conversion, allocation — with a test suite incl. a randomized "no penny lost" property test.
-- [x] `domain`: Account / Transaction / Category / Budget entities, derived-balance and net-worth rules, split validation, ports — with tests.
-- [x] `api`: Fastify server; accounts, transactions, net-worth report. **Two interchangeable stores** behind the same domain ports — in-memory (default) and Prisma/Postgres.
-- [x] Prisma adapters + `docker-compose` Postgres, verified by an integration test against a live database.
-- [x] **CSV import** (mappable columns, inflow/outflow, dedupe), **budgets** (create + budget-vs-actual report), and **data export** (full JSON + transactions CSV).
-- [ ] OFX/QFX import, web client, Phase 1 bank connectivity. (Next.)
+- [x] `domain`: Account / Transaction / Category / Budget entities, derived-balance and net-worth rules, split validation, rule-based categorization, ports — with tests.
+- [x] `api`: Fastify server. **Two interchangeable stores** behind the same domain ports — in-memory (default) and Prisma/Postgres.
+- [x] Prisma adapters + `docker-compose` Postgres, verified by integration tests against a live database.
+- [x] **Phase 0:** CSV import (mappable columns, inflow/outflow, dedupe), budgets (create + budget-vs-actual), and data export (full JSON + transactions CSV).
+- [x] **Phase 1:** aggregation layer — `AggregationProvider` port with a **Sandbox provider** (runs offline) and a real **Salt Edge** adapter, an `AggregationRouter` that picks a provider per country, a **sync engine** (account linking, incremental pull, fingerprint dedupe, consistent opening balances), and **auto-categorization rules**.
+- [ ] OFX/QFX import, web client, Phase 2 intelligence. (Next.)
 
-### API endpoints (Phase 0)
+### API endpoints
 
 ```
 POST   /v1/accounts                        GET  /v1/accounts
@@ -43,7 +44,20 @@ POST   /v1/transactions/import             # CSV import: { accountId, csv, hasHe
 POST   /v1/budgets                         GET  /v1/budgets?period=YYYY-MM   # budget vs actual
 GET    /v1/reports/net-worth?base=USD
 GET    /v1/export[?format=csv]             # data ownership: full JSON, or transactions CSV
+
+# Phase 1 — bank connectivity
+POST   /v1/connections                     # { country } -> picks a provider, returns redirectUrl
+GET    /v1/connections
+POST   /v1/connections/:id/sync            # discover accounts, pull + dedupe + auto-categorize
+POST   /v1/connections/:id/revoke
+POST   /v1/rules                           # { match, categoryId }  auto-categorization rule
+GET    /v1/rules
 ```
+
+### Bank connectivity notes
+
+- The **Sandbox provider** (`country: "SANDBOX"`) is a deterministic fake bank, so the full connect → sync → categorize flow runs with no credentials — used by the tests and handy for local dev.
+- The **Salt Edge** adapter activates only when `SALT_EDGE_APP_ID` / `SALT_EDGE_SECRET` are set; it registers as the global (`*`) fallback in the router. Its API field names follow Salt Edge v6 and should be re-verified against current docs before production.
 
 ## Running it
 

@@ -11,6 +11,7 @@ import type {
   AggregatorConnection,
   AggregatorProviderName,
   Budget,
+  CategorizationRule,
   Category,
   Transaction,
 } from "./types.js";
@@ -20,6 +21,8 @@ export interface AccountRepository {
   findById(userId: string, id: string): Promise<Account | null>;
   listByUser(userId: string, opts?: { includeArchived?: boolean }): Promise<Account[]>;
   update(account: Account): Promise<Account>;
+  /** Find a linked account by its aggregator connection + provider account id. */
+  findByExternalId(userId: string, connectionId: string, externalId: string): Promise<Account | null>;
 }
 
 export interface TransactionRepository {
@@ -45,6 +48,18 @@ export interface BudgetRepository {
   upsert(budget: Budget): Promise<Budget>;
   listByPeriod(userId: string, period: string): Promise<Budget[]>;
   listByUser(userId: string): Promise<Budget[]>;
+}
+
+export interface AggregatorConnectionRepository {
+  create(connection: AggregatorConnection): Promise<AggregatorConnection>;
+  findById(userId: string, id: string): Promise<AggregatorConnection | null>;
+  listByUser(userId: string): Promise<AggregatorConnection[]>;
+  update(connection: AggregatorConnection): Promise<AggregatorConnection>;
+}
+
+export interface CategorizationRuleRepository {
+  create(rule: CategorizationRule): Promise<CategorizationRule>;
+  listByUser(userId: string): Promise<CategorizationRule[]>;
 }
 
 /** Dated FX rates. Returns base units per one `from` unit for a given date. */

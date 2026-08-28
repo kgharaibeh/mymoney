@@ -16,11 +16,17 @@ import type {
   Account,
   AccountRepository,
   AccountType,
+  AggregatorConnection,
+  AggregatorConnectionRepository,
+  AggregatorProviderName,
   Budget,
   BudgetRepository,
+  CategorizationRule,
+  CategorizationRuleRepository,
   Category,
   CategoryKind,
   CategoryRepository,
+  ConnectionStatus,
   FxRateProvider,
   Transaction,
   TransactionRepository,
@@ -57,6 +63,8 @@ type AccountRow = {
   openingAmountMinor: bigint;
   openingDate: Date;
   archivedAt: Date | null;
+  connectionId: string | null;
+  externalId: string | null;
 };
 
 function toAccount(row: AccountRow): Account {
@@ -69,6 +77,8 @@ function toAccount(row: AccountRow): Account {
     opening: Money.ofMinor(row.openingAmountMinor, row.currency),
     openingDate: fromDbDate(row.openingDate),
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
+    connectionId: row.connectionId,
+    externalId: row.externalId,
   };
 }
 
@@ -128,6 +138,8 @@ export class PrismaAccountRepository implements AccountRepository {
         openingAmountMinor: account.opening.amount,
         openingDate: toDbDate(account.openingDate),
         archivedAt: account.archivedAt ? new Date(account.archivedAt) : null,
+        connectionId: account.connectionId ?? null,
+        externalId: account.externalId ?? null,
       },
     });
     return toAccount(row);
@@ -135,6 +147,11 @@ export class PrismaAccountRepository implements AccountRepository {
 
   async findById(userId: string, id: string): Promise<Account | null> {
     const row = await this.prisma.account.findFirst({ where: { id, userId } });
+    return row ? toAccount(row) : null;
+  }
+
+  async findByExternalId(userId: string, connectionId: string, externalId: string): Promise<Account | null> {
+    const row = await this.prisma.account.findFirst({ where: { userId, connectionId, externalId } });
     return row ? toAccount(row) : null;
   }
 
@@ -349,6 +366,81 @@ export class PrismaBudgetRepository implements BudgetRepository {
       limit: Money.ofMinor(row.limitMinor, row.currency),
       rollover: row.rollover,
     };
+  }
+}
+
+export class PrismaAggregatorConnectionRepository implements AggregatorConnectionRepository {
+  constructor(private readonly prisma: PrismaClient = getPrisma()) {}
+
+  async create(c: AggregatorConnection): Promise<AggregatorConnection> {
+    const row = await this.prisma.aggregatorConnection.create({
+      data: {
+        id: c.id,
+        userId: c.userId,
+        provider: c.provider,
+        externalId: c.externalId,
+        status: c.status,
+        lastSyncedAt: c.lastSyncedAt ? new Date(c.lastSyncedAt) : null,
+      },
+    });
+    return this.toConnection(row);
+  }
+
+  async findById(userId: string, id: string): Promise<AggregatorConnection | null> {
+    const row = await this.prisma.aggregatorConnection.findFirst({ where: { id, userId } });
+    return row ? this.toConnection(row) : null;
+  }
+
+  async listByUser(userId: string): Promise<AggregatorConnection[]> {
+    const rows = await this.prisma.aggregatorConnection.findMany({ where: { userId } });
+    return rows.map((r) => this.toConnection(r));
+  }
+
+  async update(c: AggregatorConnection): Promise<AggregatorConnection> {
+    const row = await this.prisma.aggregatorConnection.update({
+      where: { id: c.id },
+      data: { status: c.status, lastSyncedAt: c.lastSyncedAt ? new Date(c.lastSyncedAt) : null },
+    });
+    return this.toConnection(row);
+  }
+
+  private toConnection(row: {
+    id: string;
+    userId: string;
+    provider: string;
+    externalId: string;
+    status: string;
+    lastSyncedAt: Date | null;
+    createdAt: Date;
+  }): AggregatorConnection {
+    return {
+      id: row.id,
+      userId: row.userId,
+      provider: row.provider as AggregatorProviderName,
+      externalId: row.externalId,
+      status: row.status as ConnectionStatus,
+      lastSyncedAt: row.lastSyncedAt ? row.lastSyncedAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+}
+
+export class PrismaCategorizationRuleRepository implements CategorizationRuleRepository {
+  constructor(private readonly prisma: PrismaClient = getPrisma()) {}
+
+  async create(rule: CategorizationRule): Promise<CategorizationRule> {
+    const row = await this.prisma.categorizationRule.create({
+      data: { id: rule.id, userId: rule.userId, match: rule.match, categoryId: rule.categoryId },
+    });
+    return { id: row.id, userId: row.userId, match: row.match, categoryId: row.categoryId };
+  }
+
+  async listByUser(userId: string): Promise<CategorizationRule[]> {
+    const rows = await this.prisma.categorizationRule.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map((r) => ({ id: r.id, userId: r.userId, match: r.match, categoryId: r.categoryId }));
   }
 }
 

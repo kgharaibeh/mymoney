@@ -29,6 +29,10 @@ export interface Account {
   opening: Money;
   openingDate: string; // ISO date (YYYY-MM-DD)
   archivedAt: string | null;
+  /** Set when the account is linked to a bank via an aggregator connection. */
+  connectionId?: string | null;
+  /** The provider's id for this account, used to match it on re-sync. */
+  externalId?: string | null;
 }
 
 export type CategoryKind = "income" | "expense";
@@ -79,7 +83,7 @@ export interface Budget {
   rollover: boolean;
 }
 
-export type AggregatorProviderName = "salt_edge" | "tink" | "plaid" | "truelayer";
+export type AggregatorProviderName = "salt_edge" | "tink" | "plaid" | "truelayer" | "sandbox";
 export type ConnectionStatus = "active" | "needs_reconsent" | "revoked" | "error";
 
 export interface AggregatorConnection {
@@ -89,4 +93,17 @@ export interface AggregatorConnection {
   externalId: string;
   status: ConnectionStatus;
   createdAt: string;
+  /** Cursor for incremental sync: the last time transactions were pulled. */
+  lastSyncedAt?: string | null;
+}
+
+/**
+ * A user-defined rule that auto-assigns a category to imported transactions
+ * whose payee contains `match` (case-insensitive). First matching rule wins.
+ */
+export interface CategorizationRule {
+  id: string;
+  userId: string;
+  match: string;
+  categoryId: string;
 }

@@ -7,9 +7,14 @@ import {
   PrismaTransactionRepository,
   PrismaBudgetRepository,
   PrismaCategoryRepository,
+  PrismaAggregatorConnectionRepository,
+  PrismaCategorizationRuleRepository,
   PrismaFxRateProvider,
 } from "./prisma.js";
 import { SystemClock } from "./in-memory.js";
+import { ConnectionService } from "../connections.js";
+import { AggregationRouter } from "../aggregation/router.js";
+import { SandboxAggregationProvider } from "../aggregation/sandbox.js";
 
 /**
  * Integration test against a real Postgres. It is SKIPPED unless RUN_DB_TESTS=1
@@ -30,6 +35,8 @@ describe.skipIf(!run)("Prisma adapters (Postgres)", () => {
     await prisma.transaction.deleteMany({});
     await prisma.account.deleteMany({});
     await prisma.budget.deleteMany({});
+    await prisma.categorizationRule.deleteMany({});
+    await prisma.aggregatorConnection.deleteMany({});
     await prisma.category.deleteMany({});
     await prisma.fxRate.deleteMany({});
     await prisma.user.deleteMany({ where: { id: userId } });
@@ -109,5 +116,26 @@ describe.skipIf(!run)("Prisma adapters (Postgres)", () => {
     expect(nw.currency).toBe("USD");
     // 960.00 EUR * 1.08 = 1036.80 USD
     expect(nw.toDecimalString()).toBe("1036.80");
+  });
+
+  it("links and syncs a sandbox bank connection through Prisma", async () => {
+    const connections = new ConnectionService(
+      new PrismaAccountRepository(),
+      new PrismaTransactionRepository(),
+      new PrismaAggregatorConnectionRepository(),
+      new PrismaCategorizationRuleRepository(),
+      new AggregationRouter([new SandboxAggregationProvider()]),
+      new SystemClock(),
+    );
+
+    const { connection } = await connections.startConnection(userId, { country: "SANDBOX" });
+    const result = await connections.syncConnection(userId, connection.id);
+    expect(result).toEqual({ accountsLinked: 2, imported: 4, skippedDuplicates: 0 });
+
+    const linked = await new PrismaAccountRepository().findByExternalId(userId, connection.id, "sb-checking");
+    expect(linked?.currency).toBe("USD");
+
+    const resync = await connections.syncConnection(userId, connection.id);
+    expect(resync).toEqual({ accountsLinked: 0, imported: 0, skippedDuplicates: 0 });
   });
 });

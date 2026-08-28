@@ -39,6 +39,7 @@ enum AggregatorProvider {
   tink
   plaid
   truelayer
+  sandbox
 }
 
 enum ConnectionStatus {
@@ -57,6 +58,7 @@ model User {
   categories   Category[]
   budgets      Budget[]
   connections  AggregatorConnection[]
+  rules        CategorizationRule[]
 }
 
 model Account {
@@ -73,8 +75,10 @@ model Account {
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
   connectionId String?
+  externalId   String?
   connection   AggregatorConnection? @relation(fields: [connectionId], references: [id])
 
+  @@unique([connectionId, externalId], name: "conn_ext")
   @@index([userId])
 }
 
@@ -157,15 +161,28 @@ model FxRate {
 }
 
 model AggregatorConnection {
-  id         String             @id @default(uuid())
-  userId     String
-  provider   AggregatorProvider
-  externalId String
-  status     ConnectionStatus   @default(active)
-  createdAt  DateTime           @default(now())
+  id           String             @id @default(uuid())
+  userId       String
+  provider     AggregatorProvider
+  externalId   String
+  status       ConnectionStatus   @default(active)
+  lastSyncedAt DateTime?
+  createdAt    DateTime           @default(now())
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   accounts Account[]
+
+  @@index([userId])
+}
+
+model CategorizationRule {
+  id         String   @id @default(uuid())
+  userId     String
+  match      String
+  categoryId String
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }

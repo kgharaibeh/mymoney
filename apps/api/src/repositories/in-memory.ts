@@ -10,8 +10,12 @@
 import type {
   Account,
   AccountRepository,
+  AggregatorConnection,
+  AggregatorConnectionRepository,
   Budget,
   BudgetRepository,
+  CategorizationRule,
+  CategorizationRuleRepository,
   Category,
   CategoryRepository,
   Clock,
@@ -39,6 +43,13 @@ export class InMemoryAccountRepository implements AccountRepository {
   async update(account: Account): Promise<Account> {
     this.accounts.set(account.id, account);
     return account;
+  }
+  async findByExternalId(userId: string, connectionId: string, externalId: string): Promise<Account | null> {
+    return (
+      [...this.accounts.values()].find(
+        (a) => a.userId === userId && a.connectionId === connectionId && a.externalId === externalId,
+      ) ?? null
+    );
   }
 }
 
@@ -136,6 +147,36 @@ export class StaticFxRateProvider implements FxRateProvider {
     if (!f || !t) throw new Error(`No FX rate for ${from}->${to}`);
     // (USD per from) / (USD per to) = to per from
     return (Number(f) / Number(t)).toString();
+  }
+}
+
+export class InMemoryAggregatorConnectionRepository implements AggregatorConnectionRepository {
+  private connections = new Map<string, AggregatorConnection>();
+  async create(connection: AggregatorConnection): Promise<AggregatorConnection> {
+    this.connections.set(connection.id, connection);
+    return connection;
+  }
+  async findById(userId: string, id: string): Promise<AggregatorConnection | null> {
+    const c = this.connections.get(id);
+    return c && c.userId === userId ? c : null;
+  }
+  async listByUser(userId: string): Promise<AggregatorConnection[]> {
+    return [...this.connections.values()].filter((c) => c.userId === userId);
+  }
+  async update(connection: AggregatorConnection): Promise<AggregatorConnection> {
+    this.connections.set(connection.id, connection);
+    return connection;
+  }
+}
+
+export class InMemoryCategorizationRuleRepository implements CategorizationRuleRepository {
+  private rules: CategorizationRule[] = [];
+  async create(rule: CategorizationRule): Promise<CategorizationRule> {
+    this.rules.push(rule);
+    return rule;
+  }
+  async listByUser(userId: string): Promise<CategorizationRule[]> {
+    return this.rules.filter((r) => r.userId === userId);
   }
 }
 

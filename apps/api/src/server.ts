@@ -13,13 +13,25 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { Money } from "@mymoney/money-core";
 import {
   InMemoryAccountRepository,
+  InMemoryAggregatorConnectionRepository,
   InMemoryBudgetRepository,
+  InMemoryCategorizationRuleRepository,
   InMemoryCategoryRepository,
   InMemoryTransactionRepository,
   StaticFxRateProvider,
   SystemClock,
 } from "./repositories/in-memory.js";
 import { AppService, NotFoundError, ValidationError } from "./service.js";
+import { ConnectionService } from "./connections.js";
+import { AggregationRouter } from "./aggregation/router.js";
+import { SandboxAggregationProvider } from "./aggregation/sandbox.js";
+import { SaltEdgeAggregationProvider } from "./aggregation/saltedge.js";
+import type { AggregationProvider, Clock } from "@mymoney/domain";
+
+export interface AppDeps {
+  service: AppService;
+  connections: ConnectionService;
+}
 
 // ---- Dependency wiring ------------------------------------------------------
 
@@ -28,33 +40,70 @@ import { AppService, NotFoundError, ValidationError } from "./service.js";
  * Prisma adapters (imported lazily so the in-memory path needs no generated
  * Prisma client); anything else uses the in-memory adapters.
  */
-export async function createServiceFromEnv(): Promise<AppService> {
-  const clock = new SystemClock();
+/** Register the aggregation providers: specific first, Salt Edge as the "*" fallback. */
+function buildRouter(): AggregationRouter {
+  const providers: AggregationProvider[] = [new SandboxAggregationProvider()];
+  const saltEdge = SaltEdgeAggregationProvider.fromEnv();
+  if (saltEdge) providers.push(saltEdge); // only if credentials are configured
+  return new AggregationRouter(providers);
+}
+
+export async function createDepsFromEnv(): Promise<AppDeps> {
+  const clock: Clock = new SystemClock();
+  const router = buildRouter();
+
   if ((process.env.STORE ?? "memory").toLowerCase() === "postgres") {
     const {
       PrismaAccountRepository,
       PrismaTransactionRepository,
       PrismaBudgetRepository,
       PrismaCategoryRepository,
+      PrismaAggregatorConnectionRepository,
+      PrismaCategorizationRuleRepository,
       PrismaFxRateProvider,
     } = await import("./repositories/prisma.js");
-    return new AppService(
-      new PrismaAccountRepository(),
-      new PrismaTransactionRepository(),
+    const accounts = new PrismaAccountRepository();
+    const transactions = new PrismaTransactionRepository();
+    const service = new AppService(
+      accounts,
+      transactions,
       new PrismaBudgetRepository(),
       new PrismaCategoryRepository(),
       new PrismaFxRateProvider(),
       clock,
     );
+    const connections = new ConnectionService(
+      accounts,
+      transactions,
+      new PrismaAggregatorConnectionRepository(),
+      new PrismaCategorizationRuleRepository(),
+      router,
+      clock,
+    );
+    return { service, connections };
   }
-  return new AppService(
-    new InMemoryAccountRepository(),
-    new InMemoryTransactionRepository(),
+
+  // In-memory: account & transaction repos are SHARED by both services so that
+  // accounts created during a bank sync are visible to the rest of the API.
+  const accounts = new InMemoryAccountRepository();
+  const transactions = new InMemoryTransactionRepository();
+  const service = new AppService(
+    accounts,
+    transactions,
     new InMemoryBudgetRepository(),
     new InMemoryCategoryRepository(),
     new StaticFxRateProvider(),
     clock,
   );
+  const connections = new ConnectionService(
+    accounts,
+    transactions,
+    new InMemoryAggregatorConnectionRepository(),
+    new InMemoryCategorizationRuleRepository(),
+    router,
+    clock,
+  );
+  return { service, connections };
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -75,7 +124,7 @@ function requireUser(req: FastifyRequest): string {
 
 // ---- Server -----------------------------------------------------------------
 
-export function buildServer(service: AppService) {
+export function buildServer(service: AppService, connections: ConnectionService) {
   const app = Fastify({ logger: true });
 
   app.setErrorHandler((err, _req, reply) => {
@@ -169,6 +218,42 @@ export function buildServer(service: AppService) {
     return { base, netWorth: serializeMoney(nw) };
   });
 
+  // Bank connectivity (Phase 1)
+  app.post("/v1/connections", async (req, reply) => {
+    const userId = requireUser(req);
+    const { connection, redirectUrl } = await connections.startConnection(userId, req.body as never);
+    return reply.status(201).send({ ...serializeConnection(connection), redirectUrl });
+  });
+
+  app.get("/v1/connections", async (req) => {
+    const userId = requireUser(req);
+    return (await connections.listConnections(userId)).map(serializeConnection);
+  });
+
+  app.post("/v1/connections/:id/sync", async (req) => {
+    const userId = requireUser(req);
+    const { id } = req.params as { id: string };
+    return connections.syncConnection(userId, id);
+  });
+
+  app.post("/v1/connections/:id/revoke", async (req) => {
+    const userId = requireUser(req);
+    const { id } = req.params as { id: string };
+    return serializeConnection(await connections.revokeConnection(userId, id));
+  });
+
+  // Auto-categorization rules
+  app.post("/v1/rules", async (req, reply) => {
+    const userId = requireUser(req);
+    const rule = await connections.addRule(userId, req.body as never);
+    return reply.status(201).send(rule);
+  });
+
+  app.get("/v1/rules", async (req) => {
+    const userId = requireUser(req);
+    return connections.listRules(userId);
+  });
+
   // Export (data ownership)
   app.get("/v1/export", async (req, reply) => {
     const userId = requireUser(req);
@@ -204,6 +289,16 @@ function serializeAccount(a: import("@mymoney/domain").Account) {
   };
 }
 
+function serializeConnection(c: import("@mymoney/domain").AggregatorConnection) {
+  return {
+    id: c.id,
+    provider: c.provider,
+    status: c.status,
+    lastSyncedAt: c.lastSyncedAt ?? null,
+    createdAt: c.createdAt,
+  };
+}
+
 function serializeBudget(b: import("@mymoney/domain").Budget) {
   return {
     id: b.id,
@@ -234,8 +329,8 @@ function serializeTransaction(t: import("@mymoney/domain").Transaction) {
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const port = Number(process.env.PORT ?? 3000);
-  createServiceFromEnv()
-    .then((service) => buildServer(service).listen({ port, host: "0.0.0.0" }))
+  createDepsFromEnv()
+    .then((deps) => buildServer(deps.service, deps.connections).listen({ port, host: "0.0.0.0" }))
     .then(() => console.log(`MyMoney API listening on :${port} (store: ${process.env.STORE ?? "memory"})`))
     .catch((err) => {
       console.error(err);

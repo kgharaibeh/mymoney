@@ -2,9 +2,14 @@ import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "./server.js";
 import { AppService } from "./service.js";
+import { ConnectionService } from "./connections.js";
+import { AggregationRouter } from "./aggregation/router.js";
+import { SandboxAggregationProvider } from "./aggregation/sandbox.js";
 import {
   InMemoryAccountRepository,
+  InMemoryAggregatorConnectionRepository,
   InMemoryBudgetRepository,
+  InMemoryCategorizationRuleRepository,
   InMemoryCategoryRepository,
   InMemoryTransactionRepository,
   StaticFxRateProvider,
@@ -18,15 +23,27 @@ import {
 describe("MyMoney API", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
+    const clock = new SystemClock();
+    // Shared repos so bank-synced accounts are visible to the rest of the API.
+    const accounts = new InMemoryAccountRepository();
+    const transactions = new InMemoryTransactionRepository();
     const service = new AppService(
-      new InMemoryAccountRepository(),
-      new InMemoryTransactionRepository(),
+      accounts,
+      transactions,
       new InMemoryBudgetRepository(),
       new InMemoryCategoryRepository(),
       new StaticFxRateProvider(),
-      new SystemClock(),
+      clock,
     );
-    app = buildServer(service);
+    const connections = new ConnectionService(
+      accounts,
+      transactions,
+      new InMemoryAggregatorConnectionRepository(),
+      new InMemoryCategorizationRuleRepository(),
+      new AggregationRouter([new SandboxAggregationProvider()]),
+      clock,
+    );
+    app = buildServer(service, connections);
     await app.ready();
   });
 
@@ -201,5 +218,53 @@ describe("MyMoney API", () => {
     expect(csv.statusCode).toBe(200);
     expect(csv.headers["content-type"]).toContain("text/csv");
     expect(csv.body.split("\n")[0]).toBe("date,account,payee,amount,currency,category,status");
+  });
+
+  it("links a bank via the sandbox provider, syncs, auto-categorizes, and dedupes", async () => {
+    const user = { "x-user-id": "user-bank" };
+
+    // A categorization rule that should tag the imported Starbucks transaction.
+    const rule = await app.inject({
+      method: "POST",
+      url: "/v1/rules",
+      headers: user,
+      payload: { match: "starbucks", categoryId: "coffee" },
+    });
+    expect(rule.statusCode).toBe(201);
+
+    const connect = await app.inject({
+      method: "POST",
+      url: "/v1/connections",
+      headers: user,
+      payload: { country: "SANDBOX" },
+    });
+    expect(connect.statusCode).toBe(201);
+    expect(connect.json().provider).toBe("sandbox");
+    expect(connect.json().redirectUrl).toContain("sandbox");
+    const connectionId = connect.json().id as string;
+
+    const sync = await app.inject({ method: "POST", url: `/v1/connections/${connectionId}/sync`, headers: user });
+    expect(sync.statusCode).toBe(200);
+    expect(sync.json()).toEqual({ accountsLinked: 2, imported: 4, skippedDuplicates: 0 });
+
+    // The linked checking account's derived balance matches the bank balance.
+    const accounts = (await app.inject({ method: "GET", url: "/v1/accounts", headers: user })).json() as Array<{
+      id: string;
+      name: string;
+      balance: { decimal: string };
+    }>;
+    const checking = accounts.find((a) => a.name === "Sandbox Checking")!;
+    expect(checking.balance.decimal).toBe("1937.66");
+
+    // The Starbucks transaction was auto-categorized.
+    const txns = (
+      await app.inject({ method: "GET", url: `/v1/accounts/${checking.id}/transactions`, headers: user })
+    ).json() as Array<{ payee: string; categoryId: string | null }>;
+    const coffee = txns.find((t) => t.payee.includes("STARBUCKS"))!;
+    expect(coffee.categoryId).toBe("coffee");
+
+    // Re-syncing imports nothing new (incremental cursor + fingerprint dedupe).
+    const resync = await app.inject({ method: "POST", url: `/v1/connections/${connectionId}/sync`, headers: user });
+    expect(resync.json()).toEqual({ accountsLinked: 0, imported: 0, skippedDuplicates: 0 });
   });
 });
