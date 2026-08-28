@@ -1,0 +1,43 @@
+# Production-style deploy: the API image (serving the web app) + Postgres.
+#
+#   AUTH_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=changeme \
+#     docker compose -f docker-compose.prod.yml up --build
+#
+# Then open http://localhost:3000 — the API serves the web app and the /v1 API
+# from the same origin.
+name: mymoney-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mymoney
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: mymoney
+    volumes:
+      - mymoney_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mymoney -d mymoney"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://mymoney:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/mymoney?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET to a long random value}
+      STORE: postgres
+      PORT: "3000"
+      WEB_DIST: /app/apps/web/dist
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mymoney_prod_pgdata:

@@ -36,6 +36,7 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 - [x] **Auth:** email/password signup + login, scrypt-hashed passwords, HS256 bearer tokens (zero external deps); every `/v1` route requires a token; the web client has a login/signup gate.
 - [x] **Auth hardening:** token revocation via a per-user version (change-password and log-out-everywhere invalidate all outstanding tokens), per-request user-existence checks, login rate limiting, and baseline security headers.
 - [x] **Web polish:** toasts, loading spinners, inline confirm for destructive actions, delete-transaction, archive-account, a Settings view (change password, sign out everywhere), and session validation on load.
+- [x] **CI + deploy:** GitHub Actions runs build + tests (with Postgres) on every push/PR; a production Docker image serves the web app and API as one service (`docker-compose.prod.yml`).
 - [ ] OFX/QFX import, Phase 2 intelligence. (Next.)
 
 ### API endpoints
@@ -146,6 +147,28 @@ Unpause Docker Desktop first, then from the repo root:
 ```bash
 docker run --rm -v "$PWD":/app -w /app node:20-alpine sh -c "corepack enable && pnpm install && pnpm test"
 ```
+
+## Deploy
+
+The app ships as **one service**: a production Docker image builds every package
+plus the web app, then runs the Fastify API, which also serves the built web app
+as static files (same origin, so no CORS and no separate web host). Pair it with
+Postgres via `docker-compose.prod.yml`:
+
+```bash
+AUTH_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
+  docker compose -f docker-compose.prod.yml up --build
+```
+
+Open **http://localhost:3000** — the web app and the `/v1` API are served from
+the same origin, backed by Postgres (the schema is applied on startup via
+`prisma db push`). Required env: `AUTH_SECRET` (token signing) and
+`POSTGRES_PASSWORD`.
+
+Anywhere that runs a container + Postgres works: build and push the image, set
+the env vars, and point `DATABASE_URL` at your database. For a managed platform,
+set `WEB_DIST=/app/apps/web/dist`, `STORE=postgres`, and `PORT`, and run
+`node apps/api/dist/server.js` (after `prisma db push` / `migrate deploy`).
 
 ## Design guarantees (why this is trustworthy)
 

@@ -1,0 +1,10 @@
+# Keep the build context small and force a clean install in the image.
+**/node_modules
+**/dist
+**/.prisma
+.git
+.github
+*.log
+.env
+.env.*
+!.env.example
