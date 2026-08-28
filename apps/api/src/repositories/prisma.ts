@@ -324,14 +324,31 @@ export class PrismaBudgetRepository implements BudgetRepository {
 
   async listByPeriod(userId: string, period: string): Promise<Budget[]> {
     const rows = await this.prisma.budget.findMany({ where: { userId, period } });
-    return rows.map((row) => ({
+    return rows.map((row) => this.toBudget(row));
+  }
+
+  async listByUser(userId: string): Promise<Budget[]> {
+    const rows = await this.prisma.budget.findMany({ where: { userId } });
+    return rows.map((row) => this.toBudget(row));
+  }
+
+  private toBudget(row: {
+    id: string;
+    userId: string;
+    categoryId: string;
+    period: string;
+    limitMinor: bigint;
+    currency: string;
+    rollover: boolean;
+  }): Budget {
+    return {
       id: row.id,
       userId: row.userId,
       categoryId: row.categoryId,
       period: row.period,
       limit: Money.ofMinor(row.limitMinor, row.currency),
       rollover: row.rollover,
-    }));
+    };
   }
 }
 

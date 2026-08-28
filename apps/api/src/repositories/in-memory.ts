@@ -110,6 +110,9 @@ export class InMemoryBudgetRepository implements BudgetRepository {
   async listByPeriod(userId: string, period: string): Promise<Budget[]> {
     return [...this.budgets.values()].filter((b) => b.userId === userId && b.period === period);
   }
+  async listByUser(userId: string): Promise<Budget[]> {
+    return [...this.budgets.values()].filter((b) => b.userId === userId);
+  }
 }
 
 /**

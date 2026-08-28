@@ -25,6 +25,9 @@ export function accountBalance(account: Account, transactions: Transaction[]): M
 export function validateTransaction(txn: Transaction): string[] {
   const problems: string[] = [];
 
+  // A transaction with no split lines and no category is simply "uncategorized"
+  // — a valid, normal state (bank imports arrive this way and get categorized
+  // later). Only split transactions carry extra invariants.
   if (txn.splits.length > 0) {
     if (txn.categoryId !== null) {
       problems.push("A split transaction must not also set a single categoryId.");
@@ -45,8 +48,6 @@ export function validateTransaction(txn: Transaction): string[] {
     } catch (err) {
       problems.push((err as Error).message);
     }
-  } else if (txn.categoryId === null && txn.transferGroupId === null) {
-    problems.push("A non-split, non-transfer transaction must have a category.");
   }
 
   return problems;

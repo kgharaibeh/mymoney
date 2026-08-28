@@ -13,6 +13,8 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { Money } from "@mymoney/money-core";
 import {
   InMemoryAccountRepository,
+  InMemoryBudgetRepository,
+  InMemoryCategoryRepository,
   InMemoryTransactionRepository,
   StaticFxRateProvider,
   SystemClock,
@@ -29,12 +31,18 @@ import { AppService, NotFoundError, ValidationError } from "./service.js";
 export async function createServiceFromEnv(): Promise<AppService> {
   const clock = new SystemClock();
   if ((process.env.STORE ?? "memory").toLowerCase() === "postgres") {
-    const { PrismaAccountRepository, PrismaTransactionRepository, PrismaFxRateProvider } = await import(
-      "./repositories/prisma.js"
-    );
+    const {
+      PrismaAccountRepository,
+      PrismaTransactionRepository,
+      PrismaBudgetRepository,
+      PrismaCategoryRepository,
+      PrismaFxRateProvider,
+    } = await import("./repositories/prisma.js");
     return new AppService(
       new PrismaAccountRepository(),
       new PrismaTransactionRepository(),
+      new PrismaBudgetRepository(),
+      new PrismaCategoryRepository(),
       new PrismaFxRateProvider(),
       clock,
     );
@@ -42,6 +50,8 @@ export async function createServiceFromEnv(): Promise<AppService> {
   return new AppService(
     new InMemoryAccountRepository(),
     new InMemoryTransactionRepository(),
+    new InMemoryBudgetRepository(),
+    new InMemoryCategoryRepository(),
     new StaticFxRateProvider(),
     clock,
   );
@@ -126,12 +136,55 @@ export function buildServer(service: AppService) {
     return reply.status(204).send();
   });
 
+  // Import
+  app.post("/v1/transactions/import", async (req) => {
+    const userId = requireUser(req);
+    return service.importCsv(userId, req.body as never);
+  });
+
+  // Budgets
+  app.post("/v1/budgets", async (req, reply) => {
+    const userId = requireUser(req);
+    const budget = await service.createBudget(userId, req.body as never);
+    return reply.status(201).send(serializeBudget(budget));
+  });
+
+  app.get("/v1/budgets", async (req) => {
+    const userId = requireUser(req);
+    const period = (req.query as { period?: string }).period;
+    if (!period) throw new ValidationError(["Query parameter `period` (YYYY-MM) is required."]);
+    const lines = await service.budgetReport(userId, period);
+    return lines.map((l) => ({
+      ...serializeBudget(l.budget),
+      spent: serializeMoney(l.spent),
+      remaining: serializeMoney(l.remaining),
+    }));
+  });
+
   // Reports
   app.get("/v1/reports/net-worth", async (req) => {
     const userId = requireUser(req);
     const base = ((req.query as { base?: string }).base ?? "USD").toUpperCase();
     const nw = await service.netWorth(userId, base);
     return { base, netWorth: serializeMoney(nw) };
+  });
+
+  // Export (data ownership)
+  app.get("/v1/export", async (req, reply) => {
+    const userId = requireUser(req);
+    const format = (req.query as { format?: string }).format ?? "json";
+    if (format === "csv") {
+      const csv = await service.transactionsCsv(userId);
+      return reply.header("content-type", "text/csv; charset=utf-8").send(csv);
+    }
+    const data = await service.exportAll(userId);
+    return {
+      exportedAt: new Date().toISOString(),
+      accounts: data.accounts.map(serializeAccount),
+      transactions: data.transactions.map(serializeTransaction),
+      budgets: data.budgets.map(serializeBudget),
+      categories: data.categories,
+    };
   });
 
   return app;
@@ -148,6 +201,16 @@ function serializeAccount(a: import("@mymoney/domain").Account) {
     opening: serializeMoney(a.opening),
     openingDate: a.openingDate,
     archived: a.archivedAt !== null,
+  };
+}
+
+function serializeBudget(b: import("@mymoney/domain").Budget) {
+  return {
+    id: b.id,
+    categoryId: b.categoryId,
+    period: b.period,
+    limit: serializeMoney(b.limit),
+    rollover: b.rollover,
   };
 }
 

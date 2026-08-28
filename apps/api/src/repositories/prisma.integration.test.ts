@@ -5,6 +5,8 @@ import {
   disconnectPrisma,
   PrismaAccountRepository,
   PrismaTransactionRepository,
+  PrismaBudgetRepository,
+  PrismaCategoryRepository,
   PrismaFxRateProvider,
 } from "./prisma.js";
 import { SystemClock } from "./in-memory.js";
@@ -47,6 +49,8 @@ describe.skipIf(!run)("Prisma adapters (Postgres)", () => {
     service = new AppService(
       new PrismaAccountRepository(),
       new PrismaTransactionRepository(),
+      new PrismaBudgetRepository(),
+      new PrismaCategoryRepository(),
       new PrismaFxRateProvider(),
       new SystemClock(),
     );

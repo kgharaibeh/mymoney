@@ -23,13 +23,27 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 
 ## Status
 
-**Phase 0 — Foundation ledger, in progress.**
+**Phase 0 — Foundation ledger: complete.** (50 tests passing, verified in Docker incl. a live Postgres integration run.)
 
 - [x] `money-core`: Money type, currency registry, rounding modes, FX conversion, allocation — with a test suite incl. a randomized "no penny lost" property test.
 - [x] `domain`: Account / Transaction / Category / Budget entities, derived-balance and net-worth rules, split validation, ports — with tests.
 - [x] `api`: Fastify server; accounts, transactions, net-worth report. **Two interchangeable stores** behind the same domain ports — in-memory (default) and Prisma/Postgres.
 - [x] Prisma adapters + `docker-compose` Postgres, verified by an integration test against a live database.
-- [ ] CSV / OFX import, budgets endpoints, full export, web client. (Next.)
+- [x] **CSV import** (mappable columns, inflow/outflow, dedupe), **budgets** (create + budget-vs-actual report), and **data export** (full JSON + transactions CSV).
+- [ ] OFX/QFX import, web client, Phase 1 bank connectivity. (Next.)
+
+### API endpoints (Phase 0)
+
+```
+POST   /v1/accounts                        GET  /v1/accounts
+POST   /v1/accounts/:id/archive
+POST   /v1/transactions                    GET  /v1/accounts/:id/transactions
+DELETE /v1/transactions/:id
+POST   /v1/transactions/import             # CSV import: { accountId, csv, hasHeader, mapping }
+POST   /v1/budgets                         GET  /v1/budgets?period=YYYY-MM   # budget vs actual
+GET    /v1/reports/net-worth?base=USD
+GET    /v1/export[?format=csv]             # data ownership: full JSON, or transactions CSV
+```
 
 ## Running it
 

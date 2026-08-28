@@ -44,6 +44,7 @@ export interface CategoryRepository {
 export interface BudgetRepository {
   upsert(budget: Budget): Promise<Budget>;
   listByPeriod(userId: string, period: string): Promise<Budget[]>;
+  listByUser(userId: string): Promise<Budget[]>;
 }
 
 /** Dated FX rates. Returns base units per one `from` unit for a given date. */

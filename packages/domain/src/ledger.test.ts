@@ -96,9 +96,18 @@ describe("validateTransaction", () => {
     });
     expect(validateTransaction(t)).toEqual([]);
   });
-  it("flags a non-split transaction with no category", () => {
-    expect(validateTransaction(txn({ categoryId: null }))).toContain(
-      "A non-split, non-transfer transaction must have a category.",
-    );
+  it("accepts an uncategorized transaction (e.g. a fresh bank import)", () => {
+    expect(validateTransaction(txn({ categoryId: null }))).toEqual([]);
+  });
+  it("rejects a split transaction that also sets a single category", () => {
+    const t = txn({
+      categoryId: "food",
+      amount: Money.fromDecimal("-30.00", "USD"),
+      splits: [
+        { categoryId: "food", amount: Money.fromDecimal("-20.00", "USD") },
+        { categoryId: "tip", amount: Money.fromDecimal("-10.00", "USD") },
+      ],
+    });
+    expect(validateTransaction(t)).toContain("A split transaction must not also set a single categoryId.");
   });
 });
