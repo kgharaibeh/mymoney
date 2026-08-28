@@ -21,9 +21,31 @@ import { AppService, NotFoundError, ValidationError } from "./service.js";
 
 // ---- Dependency wiring ------------------------------------------------------
 
-const accounts = new InMemoryAccountRepository();
-const transactions = new InMemoryTransactionRepository();
-const service = new AppService(accounts, transactions, new StaticFxRateProvider(), new SystemClock());
+/**
+ * Choose a persistence store from the environment. `STORE=postgres` uses the
+ * Prisma adapters (imported lazily so the in-memory path needs no generated
+ * Prisma client); anything else uses the in-memory adapters.
+ */
+export async function createServiceFromEnv(): Promise<AppService> {
+  const clock = new SystemClock();
+  if ((process.env.STORE ?? "memory").toLowerCase() === "postgres") {
+    const { PrismaAccountRepository, PrismaTransactionRepository, PrismaFxRateProvider } = await import(
+      "./repositories/prisma.js"
+    );
+    return new AppService(
+      new PrismaAccountRepository(),
+      new PrismaTransactionRepository(),
+      new PrismaFxRateProvider(),
+      clock,
+    );
+  }
+  return new AppService(
+    new InMemoryAccountRepository(),
+    new InMemoryTransactionRepository(),
+    new StaticFxRateProvider(),
+    clock,
+  );
+}
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -43,7 +65,7 @@ function requireUser(req: FastifyRequest): string {
 
 // ---- Server -----------------------------------------------------------------
 
-export function buildServer() {
+export function buildServer(service: AppService) {
   const app = Fastify({ logger: true });
 
   app.setErrorHandler((err, _req, reply) => {
@@ -149,9 +171,9 @@ function serializeTransaction(t: import("@mymoney/domain").Transaction) {
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const port = Number(process.env.PORT ?? 3000);
-  buildServer()
-    .listen({ port, host: "0.0.0.0" })
-    .then(() => console.log(`MyMoney API listening on :${port}`))
+  createServiceFromEnv()
+    .then((service) => buildServer(service).listen({ port, host: "0.0.0.0" }))
+    .then(() => console.log(`MyMoney API listening on :${port} (store: ${process.env.STORE ?? "memory"})`))
     .catch((err) => {
       console.error(err);
       process.exit(1);

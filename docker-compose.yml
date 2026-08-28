@@ -1,0 +1,25 @@
+# Local Postgres for MyMoney development and the Prisma integration test.
+#   docker compose up -d db
+# The fixed project name keeps the network name stable (mymoney_default) so
+# one-off node containers can join it.
+name: mymoney
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mymoney
+      POSTGRES_PASSWORD: mymoney
+      POSTGRES_DB: mymoney
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mymoney -d mymoney"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - mymoney_pgdata:/var/lib/postgresql/data
+
+volumes:
+  mymoney_pgdata:

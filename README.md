@@ -27,7 +27,8 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 
 - [x] `money-core`: Money type, currency registry, rounding modes, FX conversion, allocation — with a test suite incl. a randomized "no penny lost" property test.
 - [x] `domain`: Account / Transaction / Category / Budget entities, derived-balance and net-worth rules, split validation, ports — with tests.
-- [x] `api`: Fastify server on in-memory adapters; accounts, transactions, net-worth report. Prisma schema for Postgres.
+- [x] `api`: Fastify server; accounts, transactions, net-worth report. **Two interchangeable stores** behind the same domain ports — in-memory (default) and Prisma/Postgres.
+- [x] Prisma adapters + `docker-compose` Postgres, verified by an integration test against a live database.
 - [ ] CSV / OFX import, budgets endpoints, full export, web client. (Next.)
 
 ## Running it
@@ -53,6 +54,32 @@ curl -s -XPOST localhost:3000/v1/accounts -H "x-user-id: u1" -H "content-type: a
   -d '{"name":"Everyday","type":"checking","currency":"EUR","openingBalance":"1000.00"}'
 
 curl -s localhost:3000/v1/reports/net-worth?base=USD -H "x-user-id: u1"
+```
+
+### Persistence: in-memory vs. Postgres
+
+The API runs on one of two interchangeable stores, selected by the `STORE` env
+var. Both implement the same domain ports, so nothing else changes.
+
+- `STORE=memory` (default) — no database; state lives in process memory.
+- `STORE=postgres` — Prisma + PostgreSQL.
+
+To use Postgres locally:
+
+```bash
+docker compose up -d db                       # start Postgres (localhost:5432)
+cp apps/api/.env.example apps/api/.env         # DATABASE_URL is prefilled for this db
+pnpm --filter @mymoney/api prisma:generate     # generate the Prisma client
+pnpm --filter @mymoney/api prisma:push         # sync the schema to the database
+STORE=postgres pnpm dev:api                    # run the API against Postgres
+```
+
+Run the Prisma integration test (skipped by default) against that database:
+
+```bash
+docker compose up -d db
+RUN_DB_TESTS=1 DATABASE_URL="postgresql://mymoney:mymoney@localhost:5432/mymoney?schema=public" \
+  pnpm --filter @mymoney/api test
 ```
 
 ### Option B — via Docker (no local Node)

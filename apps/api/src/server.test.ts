@@ -1,15 +1,28 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "./server.js";
+import { AppService } from "./service.js";
+import {
+  InMemoryAccountRepository,
+  InMemoryTransactionRepository,
+  StaticFxRateProvider,
+  SystemClock,
+} from "./repositories/in-memory.js";
 
 /**
  * End-to-end API tests using Fastify's `inject` (no real socket). Each test uses
- * a distinct x-user-id so the shared in-memory store stays isolated per case.
+ * a distinct x-user-id so the in-memory store stays isolated per case.
  */
 describe("MyMoney API", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
-    app = buildServer();
+    const service = new AppService(
+      new InMemoryAccountRepository(),
+      new InMemoryTransactionRepository(),
+      new StaticFxRateProvider(),
+      new SystemClock(),
+    );
+    app = buildServer(service);
     await app.ready();
   });
 
