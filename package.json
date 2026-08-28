@@ -1,0 +1,17 @@
+{
+  "name": "mymoney",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MyMoney — a global, cloud personal-finance app in the spirit of Microsoft Money. Monorepo.",
+  "type": "module",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "dev:api": "pnpm --filter @mymoney/api dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

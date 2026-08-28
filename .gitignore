@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Env / secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Prisma generated client
+apps/api/src/generated/
+**/.prisma/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
