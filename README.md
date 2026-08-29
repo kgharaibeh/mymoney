@@ -161,14 +161,18 @@ AUTH_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
 ```
 
 Open **http://localhost:3000** — the web app and the `/v1` API are served from
-the same origin, backed by Postgres (the schema is applied on startup via
-`prisma db push`). Required env: `AUTH_SECRET` (token signing) and
-`POSTGRES_PASSWORD`.
+the same origin, backed by Postgres. Committed **Prisma migrations** are applied
+on startup with `prisma migrate deploy` (versioned, reversible schema — not
+`db push`). Required env: `AUTH_SECRET` (token signing) and `POSTGRES_PASSWORD`.
 
 Anywhere that runs a container + Postgres works: build and push the image, set
 the env vars, and point `DATABASE_URL` at your database. For a managed platform,
-set `WEB_DIST=/app/apps/web/dist`, `STORE=postgres`, and `PORT`, and run
-`node apps/api/dist/server.js` (after `prisma db push` / `migrate deploy`).
+set `WEB_DIST=/app/apps/web/dist`, `STORE=postgres`, and `PORT`, run
+`pnpm --filter @mymoney/api prisma:migrate:deploy`, then `node apps/api/dist/server.js`.
+
+Schema changes: edit `apps/api/prisma/schema.prisma`, then
+`pnpm --filter @mymoney/api prisma:migrate --name <change>` to create a new
+migration (commit it); CI and deploy apply it via `migrate deploy`.
 
 ## Design guarantees (why this is trustworthy)
 

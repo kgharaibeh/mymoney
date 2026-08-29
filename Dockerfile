@@ -22,7 +22,5 @@ ENV NODE_ENV=production \
 
 EXPOSE 3000
 
-# Apply the schema, then start the API (which serves the web app too).
-# `db push` is fine for a single-service deploy; switch to `prisma migrate deploy`
-# once you adopt migration files.
-CMD ["sh", "-c", "pnpm --filter @mymoney/api prisma:push --skip-generate && node apps/api/dist/server.js"]
+# Apply committed migrations, then start the API (which serves the web app too).
+CMD ["sh", "-c", "pnpm --filter @mymoney/api prisma:migrate:deploy && node apps/api/dist/server.js"]
