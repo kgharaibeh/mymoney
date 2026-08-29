@@ -152,10 +152,12 @@ docker run --rm -v "$PWD":/app -w /app node:20-alpine sh -c "corepack enable && 
 
 ## Deploy
 
-The app ships as **one service**: a production Docker image builds every package
-plus the web app, then runs the Fastify API, which also serves the built web app
-as static files (same origin, so no CORS and no separate web host). Pair it with
-Postgres via `docker-compose.prod.yml`:
+The app ships as **one service**: a **multi-stage** production Docker image
+builds every package plus the web app, then ships only the API's production
+dependencies + built output (no TypeScript/Vitest/Vite/source in the final
+image). The API also serves the built web app as static files (same origin, so
+no CORS and no separate web host). Pair it with Postgres via
+`docker-compose.prod.yml`:
 
 ```bash
 AUTH_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
