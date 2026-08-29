@@ -32,6 +32,12 @@ services:
       STORE: postgres
       PORT: "3000"
       WEB_DIST: /app/apps/web/dist
+      # Public base URL for provider redirects (Salt Edge return_to).
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+      # Salt Edge — optional; when set, real bank connectivity is enabled.
+      SALT_EDGE_APP_ID: ${SALT_EDGE_APP_ID:-}
+      SALT_EDGE_SECRET: ${SALT_EDGE_SECRET:-}
+      SALT_EDGE_PRIVATE_KEY: ${SALT_EDGE_PRIVATE_KEY:-}
     # Bound to loopback only: reachable locally (and by the health check), but
     # not exposed to the network. In the TLS overlay, Caddy reaches it over the
     # compose network and terminates HTTPS; for a plain local run, use
