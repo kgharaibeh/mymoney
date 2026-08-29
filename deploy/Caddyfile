@@ -1,0 +1,8 @@
+# Caddy config: automatic HTTPS for $DOMAIN (Let's Encrypt), HTTP->HTTPS
+# redirect, compression, and a reverse proxy to the API container. The
+# certificate is obtained and renewed automatically; certs persist in the
+# caddy_data volume.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:3000
+}

@@ -169,6 +169,21 @@ the same origin, backed by Postgres. Committed **Prisma migrations** are applied
 on startup with `prisma migrate deploy` (versioned, reversible schema — not
 `db push`). Required env: `AUTH_SECRET` (token signing) and `POSTGRES_PASSWORD`.
 
+### HTTPS
+
+For a public deployment with a domain, add the TLS overlay
+(`docker-compose.tls.yml`), which runs **Caddy** in front of the API and obtains
++ auto-renews a Let's Encrypt certificate. Point the domain's A record at the
+host, set `DOMAIN` in `.env`, then:
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d --build
+```
+
+Caddy terminates HTTPS on 443 (redirecting HTTP→HTTPS) and proxies to the API
+over the compose network; the API is bound to loopback only. Open ports 80 + 443
+on the firewall. The CI auto-deploy uses both compose files.
+
 Anywhere that runs a container + Postgres works: build and push the image, set
 the env vars, and point `DATABASE_URL` at your database. For a managed platform,
 set `WEB_DIST=/app/apps/web/dist`, `STORE=postgres`, and `PORT`, run

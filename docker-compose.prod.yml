@@ -32,8 +32,12 @@ services:
       STORE: postgres
       PORT: "3000"
       WEB_DIST: /app/apps/web/dist
+    # Bound to loopback only: reachable locally (and by the health check), but
+    # not exposed to the network. In the TLS overlay, Caddy reaches it over the
+    # compose network and terminates HTTPS; for a plain local run, use
+    # http://localhost:3000.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       db:
         condition: service_healthy
