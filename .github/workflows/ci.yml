@@ -95,7 +95,7 @@ jobs:
             cd /opt/mymoney
             git fetch --depth 1 origin main
             git reset --hard origin/main
-            docker compose -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d --build
             sleep 10
             curl -fsS http://localhost:3000/health && echo
           '

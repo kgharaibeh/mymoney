@@ -1,0 +1,29 @@
+# TLS overlay: puts Caddy in front of the API to terminate HTTPS with an
+# automatic, auto-renewing Let's Encrypt certificate. Use together with the base
+# file, with DOMAIN set (in .env):
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d --build
+#
+# Caddy listens on 80/443 and reverse-proxies to the API over the compose
+# network (the API itself is only bound to loopback in the base file).
+name: mymoney-prod
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to your domain, e.g. mymoneyapp.me}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:
