@@ -30,6 +30,8 @@ interface SaltEdgeConfig {
   secret: string;
   /** PEM private key for request signing (live mode); optional in test mode. */
   privateKey?: string;
+  /** In test mode, surface Salt Edge's fake/test banks in the connect widget. */
+  includeFakeProviders?: boolean;
 }
 
 export class SaltEdgeAggregationProvider implements AggregationProvider, HostedConnectProvider {
@@ -45,6 +47,7 @@ export class SaltEdgeAggregationProvider implements AggregationProvider, HostedC
       appId,
       secret,
       privateKey: process.env.SALT_EDGE_PRIVATE_KEY,
+      includeFakeProviders: process.env.SALT_EDGE_INCLUDE_FAKE_PROVIDERS === "true",
     });
   }
 
@@ -62,13 +65,13 @@ export class SaltEdgeAggregationProvider implements AggregationProvider, HostedC
   }
 
   async createConnectSession(customerId: string, returnTo: string): Promise<{ redirectUrl: string }> {
-    const res = await this.request<{ data: { connect_url: string } }>("POST", "/connections/connect", {
-      data: {
-        customer_id: customerId,
-        consent: { scopes: ["accounts", "transactions"] },
-        attempt: { return_to: returnTo },
-      },
-    });
+    const data: Record<string, unknown> = {
+      customer_id: customerId,
+      consent: { scopes: ["accounts", "transactions"] },
+      attempt: { return_to: returnTo },
+    };
+    if (this.config.includeFakeProviders) data.include_fake_providers = true;
+    const res = await this.request<{ data: { connect_url: string } }>("POST", "/connections/connect", { data });
     return { redirectUrl: res.data.connect_url };
   }
 
