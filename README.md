@@ -36,7 +36,7 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 - [x] **Auth:** email/password signup + login, scrypt-hashed passwords, HS256 bearer tokens (zero external deps); every `/v1` route requires a token; the web client has a login/signup gate.
 - [x] **Auth hardening:** token revocation via a per-user version (change-password and log-out-everywhere invalidate all outstanding tokens), per-request user-existence checks, login rate limiting, and baseline security headers.
 - [x] **Web polish:** toasts, loading spinners, inline confirm for destructive actions, delete-transaction, archive-account, a Settings view (change password, sign out everywhere), and session validation on load.
-- [x] **CI + deploy:** GitHub Actions runs build + tests (with Postgres) on every push/PR; a production Docker image serves the web app and API as one service (`docker-compose.prod.yml`); schema managed by committed Prisma migrations.
+- [x] **CI + deploy:** GitHub Actions runs build + tests (with Postgres) on every push/PR; a multi-stage production Docker image serves the web app and API as one service (`docker-compose.prod.yml`); schema managed by committed Prisma migrations. On a merge to `main`, CI **auto-deploys** to the droplet over SSH after tests pass.
 - [x] **OFX / QFX import:** upload a bank statement file (OFX SGML or XML/QFX); transactions are parsed and deduped by the bank's transaction id (FITID).
 - [ ] Phase 2 intelligence. (Next.)
 
