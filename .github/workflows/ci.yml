@@ -72,6 +72,10 @@ jobs:
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Gated by the `production` environment: a required reviewer must approve
+    # each deploy before this job runs, and only protected branches (main) can
+    # deploy to it.
+    environment: production
     concurrency:
       group: deploy-droplet
       cancel-in-progress: false
