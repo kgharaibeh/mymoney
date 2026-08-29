@@ -64,3 +64,34 @@ jobs:
 
       - name: Test
         run: pnpm -r test
+
+  # Redeploy to the droplet after tests pass — only on a push to main (i.e. a
+  # merge), never on PRs. SSHes in, pulls the merged code, and rebuilds.
+  deploy:
+    name: Deploy to droplet
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-droplet
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" '
+            set -e
+            cd /opt/mymoney
+            git fetch --depth 1 origin main
+            git reset --hard origin/main
+            docker compose -f docker-compose.prod.yml up -d --build
+            sleep 10
+            curl -fsS http://localhost:3000/health && echo
+          '
