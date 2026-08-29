@@ -1,21 +1,24 @@
 /**
- * SaltEdgeAggregationProvider — the real, global bank-data adapter.
+ * SaltEdgeAggregationProvider — Salt Edge Account Information API v6.
  *
- * Salt Edge has the widest single footprint of any aggregator (thousands of
- * banks across 50+ countries), which is why it is our broad default; hence
- * `supportedCountries()` returns ["*"] so the router uses it as the fallback
- * for any country a more specific provider does not cover.
+ * Salt Edge has the widest Gulf/MENA + global bank coverage, so it registers as
+ * the "*" fallback in the router. It uses a hosted connect widget: we create a
+ * customer for our user, open a connect session (a `connect_url` the user is
+ * redirected to), the user authenticates with their bank + consents, and we then
+ * import their connections, accounts, and transactions.
  *
- * NOTE: this makes live HTTP calls and needs SALT_EDGE_APP_ID / SALT_EDGE_SECRET.
- * It is intentionally NOT exercised by the test suite (which uses the sandbox
- * provider). Field names follow Salt Edge's v6 API shape and should be
- * re-verified against their current docs before going to production.
+ * Auth: App-id + Secret headers. Live mode additionally requires RSA request
+ * signing — enabled automatically when SALT_EDGE_PRIVATE_KEY is configured (test
+ * mode needs no signing).
  */
 
+import { createSign } from "node:crypto";
 import { Money } from "@mymoney/money-core";
 import type {
   AggregationProvider,
   AggregatorConnection,
+  ConnectionStatus,
+  HostedConnectProvider,
   NormalizedAccount,
   NormalizedTransaction,
 } from "@mymoney/domain";
@@ -25,16 +28,15 @@ const BASE_URL = "https://www.saltedge.com/api/v6";
 interface SaltEdgeConfig {
   appId: string;
   secret: string;
-  /** Where Salt Edge sends the user back after the consent flow. */
-  returnUrl: string;
+  /** PEM private key for request signing (live mode); optional in test mode. */
+  privateKey?: string;
 }
 
-export class SaltEdgeAggregationProvider implements AggregationProvider {
+export class SaltEdgeAggregationProvider implements AggregationProvider, HostedConnectProvider {
   readonly name = "salt_edge" as const;
 
   constructor(private readonly config: SaltEdgeConfig) {}
 
-  /** Read config from the environment; returns null if not configured. */
   static fromEnv(): SaltEdgeAggregationProvider | null {
     const appId = process.env.SALT_EDGE_APP_ID;
     const secret = process.env.SALT_EDGE_SECRET;
@@ -42,34 +44,43 @@ export class SaltEdgeAggregationProvider implements AggregationProvider {
     return new SaltEdgeAggregationProvider({
       appId,
       secret,
-      returnUrl: process.env.SALT_EDGE_RETURN_URL ?? "https://app.mymoney.local/connections/callback",
+      privateKey: process.env.SALT_EDGE_PRIVATE_KEY,
     });
   }
 
   supportedCountries(): string[] {
-    return ["*"]; // broad global fallback
+    return ["*"]; // broad global/Gulf fallback
   }
 
-  async startConnection(
-    userId: string,
-    _country: string,
-  ): Promise<{ connectionId: string; redirectUrl: string }> {
-    // Salt Edge identifies the end user by a "customer"; create/return one, then
-    // open a hosted connect session and hand the URL back to the client.
-    const customer = await this.request<{ data: { id: string } }>("POST", "/customers", {
-      data: { identifier: userId },
-    }).catch(() => null);
-    const customerId = customer?.data.id;
+  // ---- Hosted connect flow --------------------------------------------------
 
-    const session = await this.request<{ data: { connect_url: string; expires_at: string } }>(
-      "POST",
-      "/connections/connect",
-      { data: { customer_id: customerId, consent: { scopes: ["account_details", "transactions_details"] }, return_to: this.config.returnUrl } },
+  async createCustomer(identifier: string): Promise<string> {
+    const res = await this.request<{ data: { customer_id: string } }>("POST", "/customers", {
+      data: { identifier },
+    });
+    return res.data.customer_id;
+  }
+
+  async createConnectSession(customerId: string, returnTo: string): Promise<{ redirectUrl: string }> {
+    const res = await this.request<{ data: { connect_url: string } }>("POST", "/connections/connect", {
+      data: {
+        customer_id: customerId,
+        consent: { scopes: ["accounts", "transactions"] },
+        attempt: { return_to: returnTo },
+      },
+    });
+    return { redirectUrl: res.data.connect_url };
+  }
+
+  async listConnections(customerId: string): Promise<Array<{ externalId: string; status: ConnectionStatus }>> {
+    const res = await this.request<{ data: SaltEdgeConnection[] }>(
+      "GET",
+      `/connections?customer_id=${encodeURIComponent(customerId)}`,
     );
-    // The permanent connection id arrives via callback/webhook; use the customer
-    // as the correlation id until then.
-    return { connectionId: customerId ?? "", redirectUrl: session.data.connect_url };
+    return res.data.map((c) => ({ externalId: c.id, status: mapStatus(c.status) }));
   }
+
+  // ---- Per-connection sync (AggregationProvider) ----------------------------
 
   async listAccounts(connection: AggregatorConnection): Promise<NormalizedAccount[]> {
     const res = await this.request<{ data: SaltEdgeAccount[] }>(
@@ -81,7 +92,7 @@ export class SaltEdgeAggregationProvider implements AggregationProvider {
       name: a.name,
       currency: a.currency_code,
       type: mapAccountNature(a.nature),
-      balance: Money.fromDecimal(String(a.balance), a.currency_code),
+      balance: Money.fromDecimal(String(a.balance ?? 0), a.currency_code),
     }));
   }
 
@@ -90,40 +101,76 @@ export class SaltEdgeAggregationProvider implements AggregationProvider {
     externalAccountId: string,
     since: string,
   ): Promise<NormalizedTransaction[]> {
-    const path =
-      `/transactions?connection_id=${encodeURIComponent(connection.externalId)}` +
-      `&account_id=${encodeURIComponent(externalAccountId)}&from_date=${encodeURIComponent(since)}`;
-    const res = await this.request<{ data: SaltEdgeTransaction[] }>("GET", path);
-    return res.data.map((t) => ({
-      externalId: t.id,
-      date: t.made_on,
-      amount: Money.fromDecimal(String(t.amount), t.currency_code),
-      payee: t.description,
-      fingerprint: `saltedge:${t.id}`,
-    }));
+    const out: NormalizedTransaction[] = [];
+    let fromId: string | null = null;
+    // Paginate via meta.next_id until exhausted.
+    for (let guard = 0; guard < 100; guard++) {
+      const params = new URLSearchParams({
+        connection_id: connection.externalId,
+        account_id: externalAccountId,
+        from_date: since,
+      });
+      if (fromId) params.set("from_id", fromId);
+      const res: { data: SaltEdgeTransaction[]; meta?: { next_id: string | null } } = await this.request(
+        "GET",
+        `/transactions?${params.toString()}`,
+      );
+      for (const t of res.data) {
+        out.push({
+          externalId: t.id,
+          date: t.made_on,
+          amount: Money.fromDecimal(String(t.amount), t.currency_code),
+          payee: t.description,
+          fingerprint: `saltedge:${t.id}`,
+        });
+      }
+      fromId = res.meta?.next_id ?? null;
+      if (!fromId) break;
+    }
+    return out;
   }
 
   async revoke(connection: AggregatorConnection): Promise<void> {
     await this.request("DELETE", `/connections/${encodeURIComponent(connection.externalId)}`);
   }
 
+  /** Not used: Salt Edge uses the hosted connect flow (createConnectSession). */
+  async startConnection(): Promise<{ connectionId: string; redirectUrl: string }> {
+    throw new Error("Salt Edge uses the hosted connect flow; call createConnectSession.");
+  }
+
+  // ---- HTTP with optional RSA signing --------------------------------------
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${BASE_URL}${path}`, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        "App-id": this.config.appId,
-        Secret: this.config.secret,
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    if (!res.ok) {
-      throw new Error(`Salt Edge ${method} ${path} failed: ${res.status} ${await res.text()}`);
+    const url = `${BASE_URL}${path}`;
+    const payload = body ? JSON.stringify(body) : "";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "App-id": this.config.appId,
+      Secret: this.config.secret,
+    };
+    if (this.config.privateKey) {
+      const expiresAt = Math.floor(Date.now() / 1000) + 60;
+      const signature = createSign("RSA-SHA256")
+        .update(`${expiresAt}|${method}|${url}|${payload}`)
+        .sign(this.config.privateKey, "base64");
+      headers["Expires-at"] = String(expiresAt);
+      headers["Signature"] = signature;
     }
-    return (await res.json()) as T;
+    const res = await fetch(url, { method, headers, ...(payload ? { body: payload } : {}) });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`Salt Edge ${method} ${path} failed: ${res.status} ${text}`);
+    }
+    return (text ? JSON.parse(text) : {}) as T;
   }
 }
 
+interface SaltEdgeConnection {
+  id: string;
+  status: string;
+}
 interface SaltEdgeAccount {
   id: string;
   name: string;
@@ -137,6 +184,18 @@ interface SaltEdgeTransaction {
   amount: number;
   currency_code: string;
   description: string;
+}
+
+function mapStatus(status: string): ConnectionStatus {
+  switch (status) {
+    case "active":
+      return "active";
+    case "inactive":
+    case "disabled":
+      return "needs_reconsent";
+    default:
+      return "error";
+  }
 }
 
 function mapAccountNature(nature: string): NormalizedAccount["type"] {

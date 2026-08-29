@@ -28,6 +28,8 @@ import type {
   CategoryRepository,
   ConnectionStatus,
   FxRateProvider,
+  ProviderCustomer,
+  ProviderCustomerRepository,
   Transaction,
   TransactionRepository,
   TransactionStatus,
@@ -443,6 +445,24 @@ export class PrismaCategorizationRuleRepository implements CategorizationRuleRep
       orderBy: { createdAt: "asc" },
     });
     return rows.map((r) => ({ id: r.id, userId: r.userId, match: r.match, categoryId: r.categoryId }));
+  }
+}
+
+export class PrismaProviderCustomerRepository implements ProviderCustomerRepository {
+  constructor(private readonly prisma: PrismaClient = getPrisma()) {}
+  async create(pc: ProviderCustomer): Promise<ProviderCustomer> {
+    const row = await this.prisma.providerCustomer.create({
+      data: { id: pc.id, userId: pc.userId, provider: pc.provider, externalId: pc.externalId },
+    });
+    return { id: row.id, userId: row.userId, provider: row.provider as AggregatorProviderName, externalId: row.externalId };
+  }
+  async find(userId: string, provider: AggregatorProviderName): Promise<ProviderCustomer | null> {
+    const row = await this.prisma.providerCustomer.findUnique({
+      where: { userId_provider: { userId, provider } },
+    });
+    return row
+      ? { id: row.id, userId: row.userId, provider: row.provider as AggregatorProviderName, externalId: row.externalId }
+      : null;
   }
 }
 

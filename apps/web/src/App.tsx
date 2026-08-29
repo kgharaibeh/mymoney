@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, clearSession, getToken } from "./api";
+import { toast } from "./toast";
 import { cx, Spinner, Toaster } from "./ui";
 import { Auth } from "./views/Auth";
 import { Dashboard } from "./views/Dashboard";
@@ -32,6 +33,23 @@ export function App() {
       .catch(() => clearSession())
       .finally(() => setChecking(false));
   }, []);
+
+  // Returning from a hosted bank-connect widget (?linked=...): import + sync.
+  useEffect(() => {
+    if (!email) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get("linked")) return;
+    window.history.replaceState({}, "", window.location.pathname);
+    setView("banks");
+    api
+      .refreshConnections()
+      .then((r) =>
+        toast.success(
+          `Linked ${r.connectionsLinked} connection(s): ${r.accountsLinked} account(s), ${r.imported} transaction(s).`,
+        ),
+      )
+      .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
+  }, [email]);
 
   if (checking) {
     return (

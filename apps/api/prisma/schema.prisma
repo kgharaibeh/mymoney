@@ -56,11 +56,12 @@ model User {
   tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
 
-  accounts     Account[]
-  categories   Category[]
-  budgets      Budget[]
-  connections  AggregatorConnection[]
-  rules        CategorizationRule[]
+  accounts          Account[]
+  categories        Category[]
+  budgets           Budget[]
+  connections       AggregatorConnection[]
+  rules             CategorizationRule[]
+  providerCustomers ProviderCustomer[]
 }
 
 model Account {
@@ -187,4 +188,16 @@ model CategorizationRule {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model ProviderCustomer {
+  id         String             @id @default(uuid())
+  userId     String
+  provider   AggregatorProvider
+  externalId String
+  createdAt  DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
 }

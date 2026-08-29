@@ -14,12 +14,15 @@ import type {
   AggregatorConnectionRepository,
   Budget,
   BudgetRepository,
+  AggregatorProviderName,
   CategorizationRule,
   CategorizationRuleRepository,
   Category,
   CategoryRepository,
   Clock,
   FxRateProvider,
+  ProviderCustomer,
+  ProviderCustomerRepository,
   Transaction,
   TransactionRepository,
   UserAccount,
@@ -179,6 +182,17 @@ export class InMemoryCategorizationRuleRepository implements CategorizationRuleR
   }
   async listByUser(userId: string): Promise<CategorizationRule[]> {
     return this.rules.filter((r) => r.userId === userId);
+  }
+}
+
+export class InMemoryProviderCustomerRepository implements ProviderCustomerRepository {
+  private items: ProviderCustomer[] = [];
+  async create(pc: ProviderCustomer): Promise<ProviderCustomer> {
+    this.items.push(pc);
+    return pc;
+  }
+  async find(userId: string, provider: AggregatorProviderName): Promise<ProviderCustomer | null> {
+    return this.items.find((p) => p.userId === userId && p.provider === provider) ?? null;
   }
 }
 

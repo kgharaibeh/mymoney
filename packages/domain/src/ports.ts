@@ -13,6 +13,8 @@ import type {
   Budget,
   CategorizationRule,
   Category,
+  ConnectionStatus,
+  ProviderCustomer,
   Transaction,
   UserAccount,
 } from "./types.js";
@@ -68,6 +70,26 @@ export interface AggregatorConnectionRepository {
 export interface CategorizationRuleRepository {
   create(rule: CategorizationRule): Promise<CategorizationRule>;
   listByUser(userId: string): Promise<CategorizationRule[]>;
+}
+
+export interface ProviderCustomerRepository {
+  create(pc: ProviderCustomer): Promise<ProviderCustomer>;
+  find(userId: string, provider: AggregatorProviderName): Promise<ProviderCustomer | null>;
+}
+
+/**
+ * A provider that uses a hosted "connect widget" flow (like Salt Edge): the user
+ * is redirected to the provider to pick and authenticate with their bank, then
+ * returns to the app. Implemented alongside AggregationProvider (which supplies
+ * the per-connection account/transaction sync).
+ */
+export interface HostedConnectProvider {
+  /** Create (or return) the provider's customer for our user identifier. */
+  createCustomer(identifier: string): Promise<string>;
+  /** Start a connect session; returns the hosted widget URL to redirect to. */
+  createConnectSession(customerId: string, returnTo: string): Promise<{ redirectUrl: string }>;
+  /** List the provider's connections for a customer (to import after linking). */
+  listConnections(customerId: string): Promise<Array<{ externalId: string; status: ConnectionStatus }>>;
 }
 
 /** Dated FX rates. Returns base units per one `from` unit for a given date. */
