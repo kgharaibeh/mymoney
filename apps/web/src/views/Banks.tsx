@@ -3,22 +3,47 @@ import { api, type SyncResultDTO } from "../api";
 import { toast } from "../toast";
 import { Banner, Button, Empty, Field, Pill, Section, Spinner, useAsync } from "../ui";
 
+const GCC_COUNTRIES = [
+  { code: "AE", name: "United Arab Emirates" },
+  { code: "SA", name: "Saudi Arabia" },
+  { code: "BH", name: "Bahrain" },
+  { code: "QA", name: "Qatar" },
+  { code: "KW", name: "Kuwait" },
+  { code: "OM", name: "Oman" },
+  { code: "JO", name: "Jordan" },
+  { code: "EG", name: "Egypt" },
+  { code: "GB", name: "United Kingdom" },
+];
+
 export function Banks() {
   const connections = useAsync(() => api.listConnections(), []);
   const rules = useAsync(() => api.listRules(), []);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [country, setCountry] = useState("AE");
 
-  const link = async () => {
+  // Real bank link via Salt Edge: redirect to the hosted connect widget.
+  const linkBank = async () => {
     setError(null);
     setNotice(null);
     setBusy("link");
     try {
-      const c = await api.startConnection("SANDBOX");
-      setNotice(
-        `Linked sandbox connection ${c.id.slice(0, 8)}… Consent URL: ${c.redirectUrl ?? "(none)"} — now Sync it.`,
-      );
+      const { redirectUrl } = await api.startHostedConnection(country);
+      window.location.href = redirectUrl; // leaves the app; returns after linking
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
+  const linkSandbox = async () => {
+    setError(null);
+    setNotice(null);
+    setBusy("sandbox");
+    try {
+      const c = await api.startSandboxConnection("SANDBOX");
+      setNotice(`Linked sandbox connection ${c.id.slice(0, 8)}… now Sync it.`);
       connections.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -67,16 +92,31 @@ export function Banks() {
       <Section
         title="Connections"
         actions={
-          <Button variant="primary" onClick={link} disabled={busy === "link"}>
-            {busy === "link" ? "Linking…" : "Link a bank (Sandbox)"}
-          </Button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <select value={country} onChange={(e) => setCountry(e.target.value)} title="Bank country">
+              {GCC_COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <Button variant="primary" onClick={linkBank} disabled={busy === "link"}>
+              {busy === "link" ? "Redirecting…" : "Link a bank"}
+            </Button>
+            <Button onClick={linkSandbox} disabled={busy === "sandbox"}>
+              {busy === "sandbox" ? "…" : "Sandbox"}
+            </Button>
+          </div>
         }
       >
         {error && <Banner kind="error">{error}</Banner>}
         {notice && <Banner kind="success">{notice}</Banner>}
         {connections.loading && <Spinner />}
         {connections.data && connections.data.length === 0 && (
-          <Empty>No connections yet. The Sandbox provider links a fake bank so you can try the full flow.</Empty>
+          <Empty>
+            No connections yet. Pick your bank's country and click “Link a bank” to connect through Salt Edge, or use
+            “Sandbox” to try the flow with a fake bank.
+          </Empty>
         )}
         {connections.data && connections.data.length > 0 && (
           <div style={{ overflowX: "auto" }}>

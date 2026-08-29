@@ -108,6 +108,17 @@ export interface AggregatorConnection {
 }
 
 /**
+ * Maps one of our users to the aggregator's own "customer" object (e.g. a Salt
+ * Edge customer), created once and reused across that user's bank connections.
+ */
+export interface ProviderCustomer {
+  id: string;
+  userId: string;
+  provider: AggregatorProviderName;
+  externalId: string; // the aggregator's customer id
+}
+
+/**
  * A user-defined rule that auto-assigns a category to imported transactions
  * whose payee contains `match` (case-insensitive). First matching rule wins.
  */

@@ -15,17 +15,25 @@ import {
   categorize,
   type Account,
   type AccountRepository,
+  type AggregationProvider,
   type AggregatorConnection,
   type AggregatorConnectionRepository,
   type CategorizationRule,
   type CategorizationRuleRepository,
   type Clock,
+  type HostedConnectProvider,
   type NormalizedTransaction,
+  type ProviderCustomerRepository,
   type Transaction,
   type TransactionRepository,
 } from "@mymoney/domain";
 import type { AggregationRouter } from "./aggregation/router.js";
 import { NotFoundError, ValidationError } from "./service.js";
+
+type HostedProvider = AggregationProvider & HostedConnectProvider;
+function isHostedConnect(p: AggregationProvider): p is HostedProvider {
+  return typeof (p as Partial<HostedConnectProvider>).createConnectSession === "function";
+}
 
 const EPOCH = "1970-01-01";
 
@@ -47,7 +55,75 @@ export class ConnectionService {
     private readonly rules: CategorizationRuleRepository,
     private readonly router: AggregationRouter,
     private readonly clock: Clock,
+    private readonly providerCustomers?: ProviderCustomerRepository,
+    private readonly appBaseUrl: string = "http://localhost:5173",
   ) {}
+
+  // ---- Hosted connect (real aggregators, e.g. Salt Edge) --------------------
+
+  /** Start a hosted bank-connect session; returns the widget URL to redirect to. */
+  async startHostedConnection(userId: string, input: { country: string }): Promise<{ redirectUrl: string }> {
+    if (!input.country) throw new ValidationError(["`country` is required."]);
+    const provider = this.router.forCountry(input.country);
+    if (!isHostedConnect(provider)) {
+      throw new ValidationError([`Provider "${provider.name}" does not support hosted bank connect.`]);
+    }
+    const customerId = await this.getOrCreateCustomer(userId, provider);
+    const returnTo = `${this.appBaseUrl}/?linked=${provider.name}`;
+    return provider.createConnectSession(customerId, returnTo);
+  }
+
+  /**
+   * After the user returns from a hosted connect widget, import any new
+   * connections from the provider(s) and sync their accounts + transactions.
+   */
+  async refreshConnections(
+    userId: string,
+  ): Promise<{ connectionsLinked: number; accountsLinked: number; imported: number; skippedDuplicates: number }> {
+    let connectionsLinked = 0;
+    let accountsLinked = 0;
+    let imported = 0;
+    let skippedDuplicates = 0;
+
+    for (const provider of this.router.list()) {
+      if (!isHostedConnect(provider) || !this.providerCustomers) continue;
+      const pc = await this.providerCustomers.find(userId, provider.name);
+      if (!pc) continue;
+
+      const remote = await provider.listConnections(pc.externalId);
+      const existing = await this.connections.listByUser(userId);
+      for (const rc of remote) {
+        let conn = existing.find((c) => c.provider === provider.name && c.externalId === rc.externalId);
+        if (!conn) {
+          conn = await this.connections.create({
+            id: randomUUID(),
+            userId,
+            provider: provider.name,
+            externalId: rc.externalId,
+            status: rc.status,
+            lastSyncedAt: null,
+            createdAt: this.clock.now().toISOString(),
+          });
+          connectionsLinked++;
+        }
+        if (conn.status === "revoked") continue;
+        const res = await this.syncConnection(userId, conn.id);
+        accountsLinked += res.accountsLinked;
+        imported += res.imported;
+        skippedDuplicates += res.skippedDuplicates;
+      }
+    }
+    return { connectionsLinked, accountsLinked, imported, skippedDuplicates };
+  }
+
+  private async getOrCreateCustomer(userId: string, provider: HostedProvider): Promise<string> {
+    if (!this.providerCustomers) throw new Error("ProviderCustomer repository is not configured.");
+    const existing = await this.providerCustomers.find(userId, provider.name);
+    if (existing) return existing.externalId;
+    const customerId = await provider.createCustomer(`mymoney-${userId}`);
+    await this.providerCustomers.create({ id: randomUUID(), userId, provider: provider.name, externalId: customerId });
+    return customerId;
+  }
 
   // ---- Connect / list / revoke ---------------------------------------------
 

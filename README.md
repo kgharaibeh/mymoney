@@ -38,6 +38,7 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 - [x] **Web polish:** toasts, loading spinners, inline confirm for destructive actions, delete-transaction, archive-account, a Settings view (change password, sign out everywhere), and session validation on load.
 - [x] **CI + deploy:** GitHub Actions runs build + tests (with Postgres) on every push/PR; a multi-stage production Docker image serves the web app and API as one service (`docker-compose.prod.yml`); schema managed by committed Prisma migrations. On a merge to `main`, CI **auto-deploys** to the droplet over SSH after tests pass — gated behind a `production` environment that requires a manual reviewer approval before each deploy.
 - [x] **OFX / QFX import:** upload a bank statement file (OFX SGML or XML/QFX); transactions are parsed and deduped by the bank's transaction id (FITID).
+- [x] **Real bank connectivity (Salt Edge):** hosted connect widget for Gulf/MENA + global banks — create customer, connect session, import connections, sync accounts + transactions. Set `SALT_EDGE_APP_ID`/`SALT_EDGE_SECRET` (+ `SALT_EDGE_PRIVATE_KEY` for live). The sandbox provider remains for offline testing.
 - [ ] Phase 2 intelligence. (Next.)
 
 ### API endpoints

@@ -178,7 +178,17 @@ export const api = {
 
   // Connections + rules
   listConnections: () => request<ConnectionDTO[]>("GET", "/v1/connections"),
-  startConnection: (country: string) =>
+  // Real hosted connect (Salt Edge): returns a widget URL to redirect to.
+  startHostedConnection: (country: string) =>
+    request<{ redirectUrl: string }>("POST", "/v1/connections/start", { country }),
+  // After returning from the widget, import + sync any new connections.
+  refreshConnections: () =>
+    request<{ connectionsLinked: number; accountsLinked: number; imported: number; skippedDuplicates: number }>(
+      "POST",
+      "/v1/connections/refresh",
+    ),
+  // Sandbox provider (dev/testing without Salt Edge).
+  startSandboxConnection: (country: string) =>
     request<ConnectionDTO>("POST", "/v1/connections", { country }),
   syncConnection: (id: string) =>
     request<SyncResultDTO>("POST", `/v1/connections/${id}/sync`),

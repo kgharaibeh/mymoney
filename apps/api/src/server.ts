@@ -18,6 +18,7 @@ import {
   InMemoryBudgetRepository,
   InMemoryCategorizationRuleRepository,
   InMemoryCategoryRepository,
+  InMemoryProviderCustomerRepository,
   InMemoryTransactionRepository,
   InMemoryUserRepository,
   StaticFxRateProvider,
@@ -64,6 +65,7 @@ function authSecret(): string {
 export async function createDepsFromEnv(): Promise<AppDeps> {
   const clock: Clock = new SystemClock();
   const router = buildRouter();
+  const appBaseUrl = process.env.APP_BASE_URL ?? "http://localhost:5173";
 
   if ((process.env.STORE ?? "memory").toLowerCase() === "postgres") {
     const {
@@ -73,6 +75,7 @@ export async function createDepsFromEnv(): Promise<AppDeps> {
       PrismaCategoryRepository,
       PrismaAggregatorConnectionRepository,
       PrismaCategorizationRuleRepository,
+      PrismaProviderCustomerRepository,
       PrismaUserRepository,
       PrismaFxRateProvider,
     } = await import("./repositories/prisma.js");
@@ -93,6 +96,8 @@ export async function createDepsFromEnv(): Promise<AppDeps> {
       new PrismaCategorizationRuleRepository(),
       router,
       clock,
+      new PrismaProviderCustomerRepository(),
+      appBaseUrl,
     );
     const auth = new AuthService(new PrismaUserRepository(), authSecret());
     return { service, connections, auth };
@@ -117,6 +122,8 @@ export async function createDepsFromEnv(): Promise<AppDeps> {
     new InMemoryCategorizationRuleRepository(),
     router,
     clock,
+    new InMemoryProviderCustomerRepository(),
+    appBaseUrl,
   );
   const auth = new AuthService(new InMemoryUserRepository(), authSecret());
   return { service, connections, auth };
@@ -299,6 +306,17 @@ export function buildServer(service: AppService, connections: ConnectionService,
   app.get("/v1/connections", async (req) => {
     const userId = requireUser(req);
     return (await connections.listConnections(userId)).map(serializeConnection);
+  });
+
+  // Hosted connect (real aggregators like Salt Edge): start a widget session,
+  // then import + sync after the user returns.
+  app.post("/v1/connections/start", async (req) => {
+    const userId = requireUser(req);
+    return connections.startHostedConnection(userId, req.body as never);
+  });
+  app.post("/v1/connections/refresh", async (req) => {
+    const userId = requireUser(req);
+    return connections.refreshConnections(userId);
   });
 
   app.post("/v1/connections/:id/sync", async (req) => {
