@@ -161,6 +161,8 @@ export const api = {
     hasHeader: boolean;
     mapping: Record<string, string | number>;
   }) => request<ImportResultDTO>("POST", "/v1/transactions/import", input),
+  importOfx: (input: { accountId: string; ofx: string }) =>
+    request<ImportResultDTO>("POST", "/v1/transactions/import-ofx", input),
 
   // Reports
   netWorth: (base: string) => request<NetWorthDTO>("GET", `/v1/reports/net-worth?base=${base}`),

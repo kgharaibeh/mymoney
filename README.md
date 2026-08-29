@@ -36,8 +36,9 @@ Dependency rule: `money-core` ← `domain` ← (`api`, `web`). Inner layers neve
 - [x] **Auth:** email/password signup + login, scrypt-hashed passwords, HS256 bearer tokens (zero external deps); every `/v1` route requires a token; the web client has a login/signup gate.
 - [x] **Auth hardening:** token revocation via a per-user version (change-password and log-out-everywhere invalidate all outstanding tokens), per-request user-existence checks, login rate limiting, and baseline security headers.
 - [x] **Web polish:** toasts, loading spinners, inline confirm for destructive actions, delete-transaction, archive-account, a Settings view (change password, sign out everywhere), and session validation on load.
-- [x] **CI + deploy:** GitHub Actions runs build + tests (with Postgres) on every push/PR; a production Docker image serves the web app and API as one service (`docker-compose.prod.yml`).
-- [ ] OFX/QFX import, Phase 2 intelligence. (Next.)
+- [x] **CI + deploy:** GitHub Actions runs build + tests (with Postgres) on every push/PR; a production Docker image serves the web app and API as one service (`docker-compose.prod.yml`); schema managed by committed Prisma migrations.
+- [x] **OFX / QFX import:** upload a bank statement file (OFX SGML or XML/QFX); transactions are parsed and deduped by the bank's transaction id (FITID).
+- [ ] Phase 2 intelligence. (Next.)
 
 ### API endpoints
 
@@ -51,6 +52,7 @@ POST   /v1/accounts/:id/archive
 POST   /v1/transactions                    GET  /v1/accounts/:id/transactions
 DELETE /v1/transactions/:id
 POST   /v1/transactions/import             # CSV import: { accountId, csv, hasHeader, mapping }
+POST   /v1/transactions/import-ofx         # OFX/QFX import: { accountId, ofx }
 POST   /v1/budgets                         GET  /v1/budgets?period=YYYY-MM   # budget vs actual
 GET    /v1/reports/net-worth?base=USD
 GET    /v1/export[?format=csv]             # data ownership: full JSON, or transactions CSV
@@ -161,14 +163,18 @@ AUTH_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
 ```
 
 Open **http://localhost:3000** — the web app and the `/v1` API are served from
-the same origin, backed by Postgres (the schema is applied on startup via
-`prisma db push`). Required env: `AUTH_SECRET` (token signing) and
-`POSTGRES_PASSWORD`.
+the same origin, backed by Postgres. Committed **Prisma migrations** are applied
+on startup with `prisma migrate deploy` (versioned, reversible schema — not
+`db push`). Required env: `AUTH_SECRET` (token signing) and `POSTGRES_PASSWORD`.
 
 Anywhere that runs a container + Postgres works: build and push the image, set
 the env vars, and point `DATABASE_URL` at your database. For a managed platform,
-set `WEB_DIST=/app/apps/web/dist`, `STORE=postgres`, and `PORT`, and run
-`node apps/api/dist/server.js` (after `prisma db push` / `migrate deploy`).
+set `WEB_DIST=/app/apps/web/dist`, `STORE=postgres`, and `PORT`, run
+`pnpm --filter @mymoney/api prisma:migrate:deploy`, then `node apps/api/dist/server.js`.
+
+Schema changes: edit `apps/api/prisma/schema.prisma`, then
+`pnpm --filter @mymoney/api prisma:migrate --name <change>` to create a new
+migration (commit it); CI and deploy apply it via `migrate deploy`.
 
 ## Design guarantees (why this is trustworthy)
 

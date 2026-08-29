@@ -257,6 +257,10 @@ export function buildServer(service: AppService, connections: ConnectionService,
     const userId = requireUser(req);
     return service.importCsv(userId, req.body as never);
   });
+  app.post("/v1/transactions/import-ofx", async (req) => {
+    const userId = requireUser(req);
+    return service.importOfx(userId, req.body as never);
+  });
 
   // Budgets
   app.post("/v1/budgets", async (req, reply) => {
