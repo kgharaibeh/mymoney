@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import { api, type AccountDTO, type ImportResultDTO } from "../api";
 import { today } from "../format";
 import { toast } from "../toast";
@@ -210,7 +210,43 @@ function AccountPanel({
       )}
 
       <ImportCsv account={account} onImported={refresh} />
+      <ImportOfx account={account} onImported={refresh} />
     </Section>
+  );
+}
+
+function ImportOfx({ account, onImported }: { account: AccountDTO; onImported: () => void }) {
+  const [busy, setBusy] = useState(false);
+
+  const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const ofx = await file.text();
+      const r = await api.importOfx({ accountId: account.id, ofx });
+      toast.success(`Imported ${r.imported} transaction(s) from ${file.name}, skipped ${r.skippedDuplicates}.`);
+      if (r.errors.length) toast.info(`${r.errors.length} transaction(s) had issues and were skipped.`);
+      onImported();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+      e.target.value = "";
+    }
+  };
+
+  return (
+    <details style={{ marginTop: 14 }}>
+      <summary style={{ cursor: "pointer", color: "var(--pine)" }}>Import an OFX / QFX file</summary>
+      <div style={{ marginTop: 12 }}>
+        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: "0.9rem" }}>
+          Upload a bank statement in OFX or QFX format. Duplicate transactions are skipped automatically.
+        </p>
+        <input type="file" accept=".ofx,.qfx,text/plain" onChange={onFile} disabled={busy} />
+        {busy && <Spinner label="Importing…" />}
+      </div>
+    </details>
   );
 }
 

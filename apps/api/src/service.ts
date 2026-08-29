@@ -29,6 +29,7 @@ import {
   type DraftTransaction,
   type RowError,
 } from "./import/csv.js";
+import { parseOfx } from "./import/ofx.js";
 
 /** How money arrives over the wire: an exact decimal string + currency. */
 export interface MoneyInput {
@@ -62,6 +63,11 @@ export interface ImportCsvInput {
   csv: string;
   hasHeader?: boolean;
   mapping: CsvMapping;
+}
+
+export interface ImportOfxInput {
+  accountId: string;
+  ofx: string;
 }
 
 export interface ImportResult {
@@ -252,6 +258,42 @@ export class AppService {
         imported++;
       } catch (err) {
         problems.push(`"${draft.payee}" on ${draft.date}: ${(err as Error).message}`);
+      }
+    }
+    return { imported, skippedDuplicates, errors: problems };
+  }
+
+  async importOfx(userId: string, input: ImportOfxInput): Promise<ImportResult> {
+    const account = await this.accounts.findById(userId, input.accountId);
+    if (!account) throw new NotFoundError("Account");
+
+    const { transactions, errors } = parseOfx(input.ofx);
+    const problems = errors.map((e) => `Transaction ${e.index}: ${e.message}`);
+
+    let imported = 0;
+    let skippedDuplicates = 0;
+    for (const t of transactions) {
+      try {
+        const money = Money.fromDecimal(t.amount, account.currency);
+        // Prefer the bank's stable transaction id; fall back to a content hash.
+        const fingerprint = t.fitid
+          ? `ofx:${t.fitid}`
+          : `ofx:${t.date}|${money.amount}|${t.payee.trim().toLowerCase()}`;
+        if (await this.transactions.existsByFingerprint(account.id, fingerprint)) {
+          skippedDuplicates++;
+          continue;
+        }
+        await this.createTransaction(userId, {
+          accountId: account.id,
+          date: t.date,
+          amount: t.amount,
+          payee: t.payee,
+          categoryId: null,
+          externalFingerprint: fingerprint,
+        });
+        imported++;
+      } catch (err) {
+        problems.push(`"${t.payee}" on ${t.date}: ${(err as Error).message}`);
       }
     }
     return { imported, skippedDuplicates, errors: problems };

@@ -296,6 +296,44 @@ describe("MyMoney API", () => {
     expect(again.json()).toMatchObject({ imported: 0, skippedDuplicates: 2 });
   });
 
+  it("imports an OFX statement and dedupes on re-import (by FITID)", async () => {
+    const user = await authFor("ofx@test.com");
+    const account = await app.inject({
+      method: "POST",
+      url: "/v1/accounts",
+      headers: user,
+      payload: { name: "OFX target", type: "checking", currency: "USD", openingBalance: "0.00" },
+    });
+    const accountId = account.json().id as string;
+    const ofx = [
+      "<OFX><BANKTRANLIST>",
+      "<STMTTRN><DTPOSTED>20260601<TRNAMT>-12.34<FITID>OF1<NAME>STARBUCKS</STMTTRN>",
+      "<STMTTRN><DTPOSTED>20260603<TRNAMT>2000.00<FITID>OF2<NAME>ACME PAYROLL</STMTTRN>",
+      "</BANKTRANLIST></OFX>",
+    ].join("\n");
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/transactions/import-ofx",
+      headers: user,
+      payload: { accountId, ofx },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ imported: 2, skippedDuplicates: 0, errors: [] });
+
+    const list = await app.inject({ method: "GET", url: "/v1/accounts", headers: user });
+    const acct = (list.json() as Array<{ id: string; balance: { decimal: string } }>).find((a) => a.id === accountId)!;
+    expect(acct.balance.decimal).toBe("1987.66"); // 2000.00 - 12.34
+
+    const again = await app.inject({
+      method: "POST",
+      url: "/v1/transactions/import-ofx",
+      headers: user,
+      payload: { accountId, ofx },
+    });
+    expect(again.json()).toMatchObject({ imported: 0, skippedDuplicates: 2 });
+  });
+
   it("reports budget vs. actual for a period", async () => {
     const user = await authFor("e@test.com");
     const account = await app.inject({
