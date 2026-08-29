@@ -1,8 +1,17 @@
-# Caddy config: automatic HTTPS for $DOMAIN (Let's Encrypt), HTTP->HTTPS
-# redirect, compression, and a reverse proxy to the API container. The
-# certificate is obtained and renewed automatically; certs persist in the
-# caddy_data volume.
+# Caddy config: HTTPS for $DOMAIN, HTTP->HTTPS redirect, compression, and a
+# reverse proxy to the API container.
+#
+# `tls internal` makes Caddy serve a locally-managed self-signed certificate for
+# the origin. This is the origin behind Cloudflare's proxy (orange cloud):
+# browsers connect to Cloudflare over a trusted cert, and Cloudflare connects to
+# this origin over TLS in "Full" mode (which accepts the self-signed cert). It is
+# self-sustaining — no Let's Encrypt renewal, which can't work once the domain is
+# proxied through Cloudflare.
+#
+# If you ever go back to DNS-only (no Cloudflare proxy), remove `tls internal`
+# so Caddy obtains a browser-trusted Let's Encrypt certificate again.
 {$DOMAIN} {
+	tls internal
 	encode zstd gzip
 	reverse_proxy api:3000
 }
