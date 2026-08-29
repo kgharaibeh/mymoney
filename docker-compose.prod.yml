@@ -38,6 +38,8 @@ services:
       SALT_EDGE_APP_ID: ${SALT_EDGE_APP_ID:-}
       SALT_EDGE_SECRET: ${SALT_EDGE_SECRET:-}
       SALT_EDGE_PRIVATE_KEY: ${SALT_EDGE_PRIVATE_KEY:-}
+      # Set to "true" in TEST mode to show Salt Edge's fake banks in the widget.
+      SALT_EDGE_INCLUDE_FAKE_PROVIDERS: ${SALT_EDGE_INCLUDE_FAKE_PROVIDERS:-}
     # Bound to loopback only: reachable locally (and by the health check), but
     # not exposed to the network. In the TLS overlay, Caddy reaches it over the
     # compose network and terminates HTTPS; for a plain local run, use
